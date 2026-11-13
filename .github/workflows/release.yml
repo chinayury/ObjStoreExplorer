@@ -154,8 +154,13 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
+          name: dist-python
           path: release-assets
-          merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-windows
+          path: release-assets
 
       - name: List release assets
         run: ls -l release-assets
