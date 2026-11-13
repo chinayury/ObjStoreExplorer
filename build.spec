@@ -54,13 +54,13 @@ ICONS_DIR = PROJECT_ROOT / "src" / "objstoreexplorer" / "resources" / "icons"
 FEEDBACK_YAML_EXAMPLE = PROJECT_ROOT / "src" / "objstoreexplorer" / "config" / "feedback.yaml.example"
 if not FEEDBACK_YAML_EXAMPLE.exists():
     raise SystemExit(
-        "找不到 src/objstoreexplorer/config/feedback.yaml.example —— 反馈配置的兜底副本无处可取。"
-        "它是版本控制内的唯一一份反馈配置模板, 不该丢失。")
+        "Missing src/objstoreexplorer/config/feedback.yaml.example: the fallback "
+        "feedback config template is required for packaging and must stay in VCS.")
 
 _STAGE = Path(tempfile.mkdtemp(prefix="ose_feedback_stage_"))
 STAGED_FEEDBACK_YAML = _STAGE / "feedback.yaml"
 STAGED_FEEDBACK_YAML.write_bytes(FEEDBACK_YAML_EXAMPLE.read_bytes())
-print("[build.spec] 反馈配置兜底副本: %s -> %s (落位名 feedback.yaml)"
+print("[build.spec] staged feedback fallback: %s -> %s (as feedback.yaml)"
       % (FEEDBACK_YAML_EXAMPLE.name, STAGED_FEEDBACK_YAML))
 
 # 入口
