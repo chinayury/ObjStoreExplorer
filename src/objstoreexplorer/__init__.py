@@ -1,8 +1,8 @@
 # Project: ObjStoreExplorer 对象存储管理工具
-# Copyright (c) 2026 智维工作室 All Rights Reserved.
-# 著作权由智维工作室对应的自然人主体持有。
-# 本源码受著作权法保护，仅获得许可方可使用。
-# 禁止未经许可分发、转售、开源。
+# Copyright (C) 2026 智维ITMSKY
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# 开发者：智维ITMSKY  |  官网：http://www.itmsky.com
+# 许可证：GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)
 
 """
 ObjStoreExplorer - MinIO/S3 对象存储管理工具 (v0.1.0 正式版)
@@ -41,5 +41,5 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__author__ = "尤立江 <41469858@qq.com>"
+__author__ = "智维ITMSKY <41469858@qq.com>"
 __all__ = ["__version__", "APP_VERSION", "__author__"]

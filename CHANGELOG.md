@@ -4,6 +4,31 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [许可与署名更正] — 2026-11-13 · 署名统一为「智维ITMSKY」
+
+> 版本号保持 v0.1.0 不变；只更正署名与许可声明，不改业务逻辑。
+
+### 🔄 Changed
+
+- **署名**：源码头版权声明由「智维工作室 All Rights Reserved.」统一为
+  `Copyright (C) 2026 智维ITMSKY`，并补充 SPDX、开发者、官网、许可证四行；
+  覆盖 `src/` 下 Python / Jinja 模板 / JS / CSS、根目录 `main.py`、`build.py`、`build.spec` 及 `tests/`。
+- **SPDX**：所有受版本控制的源码文件头新增 `SPDX-License-Identifier: AGPL-3.0-or-later`，
+  便于许可证扫描工具识别。
+- **许可声明**：删除与 AGPL-3.0 冲突的「禁止未经许可分发、转售、开源」表述，
+  明确本项目以 AGPL-3.0-or-later 发布；README 与两处关于页补充 AGPL 四段中文声明
+  （自由软件、无担保、网络服务源码义务、许可证副本获取方式）。
+- **README / LICENSE.md**：许可章节改为「许可与信息」，列出开发者、版权、官网、许可证与 SPDX；
+  `LICENSE.md` 顶部补充项目版权与 SPDX 声明（AGPL 正文未改动）。
+- **pyproject.toml**：`authors.name` 改为「智维ITMSKY」，`[project.urls]` 增加 Homepage。
+- **关于页面**：桌面版「关于」页与 Web 版 `/about` 增加开发者、官网、版权、许可证、SPDX 与声明文本；
+  `__author__` 同步为「智维ITMSKY <41469858@qq.com>」。
+
+### 🐛 Fixed
+
+- **PowerShell 5.1 批量替换中文乱码**：无 BOM 的 `.ps1` 被按 ANSI 解析，
+  中文模式串变成乱码导致语法错误；给脚本补 UTF-8 BOM 后执行成功。
+
 ---
 
 ## [发布工程化] — 2026-11-13 · 开源发布 / CI / 冒烟测试 / 健康检查

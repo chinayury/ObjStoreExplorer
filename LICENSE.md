@@ -1,3 +1,9 @@
+ObjStoreExplorer 对象存储管理工具
+Copyright (C) 2026 智维ITMSKY
+SPDX-License-Identifier: AGPL-3.0-or-later
+开发者：智维ITMSKY    官网：http://www.itmsky.com
+本程序依据 GNU Affero General Public License v3.0 or later 发布。
+
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 

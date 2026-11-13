@@ -1,7 +1,8 @@
 # Project: ObjStoreExplorer 对象存储管理工具
-# Copyright (c) 2026 智维工作室 All Rights Reserved.
-# 本源代码受著作权法保护，仅获得许可方可使用。
-# 禁止未经许可分发、转售、开源。
+# Copyright (C) 2026 智维ITMSKY
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# 开发者：智维ITMSKY  |  官网：http://www.itmsky.com
+# 许可证：GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)
 
 """Web 传输任务管理 - 浏览器上传/下载打包的后台任务与进度跟踪
 

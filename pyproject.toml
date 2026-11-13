@@ -9,7 +9,7 @@ description = "MinIO/S3 兼容对象存储管理工具 (Tkinter 桌面版 + Fast
 readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "AGPL-3.0-or-later" }
-authors = [{ name = "尤立江", email = "41469858@qq.com" }]
+authors = [{ name = "智维ITMSKY", email = "41469858@qq.com" }]
 keywords = ["minio", "s3", "object-storage", "storage-manager", "tkinter", "fastapi"]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -20,6 +20,7 @@ classifiers = [
 ]
 
 [project.urls]
+Homepage = "http://www.itmsky.com"
 Documentation = "docs/README.md"
 
 # 桌面版控制台入口: 安装后可直接 `objstoreexplorer` 启动

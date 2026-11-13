@@ -1,8 +1,8 @@
 # Project: ObjStoreExplorer 对象存储管理工具
-# Copyright (c) 2026 智维工作室 All Rights Reserved.
-# 著作权由智维工作室对应的自然人主体持有。
-# 本源码受著作权法保护，仅获得许可方可使用。
-# 禁止未经许可分发、转售、开源。
+# Copyright (C) 2026 智维ITMSKY
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# 开发者：智维ITMSKY  |  官网：http://www.itmsky.com
+# 许可证：GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)
 
 """关于页面 — 版本 / 功能 / 技术栈 (「暮橙 Emberline」)"""
 from __future__ import annotations
@@ -61,7 +61,9 @@ class AboutPage(BasePage):
         t.insert("end", "OBJESTOREEXPLORER\n", "kicker")
         t.insert("end", "对象存储管理工具\n", "title")
         t.insert("end", f"v{APP_VERSION} — MinIO / S3 桌面客户端\n", "caption")
-        t.insert("end", "Copyright (c) 2026 智维工作室 All Rights Reserved.\n", "caption")
+        t.insert("end", "Copyright (C) 2026 智维ITMSKY\n", "caption")
+        t.insert("end", "开发者：智维ITMSKY    官网：http://www.itmsky.com\n", "caption")
+        t.insert("end", "许可证：AGPL-3.0-or-later (GNU Affero General Public License v3.0 or later)\n", "caption")
 
         t.insert("end", "简介\n", "h2")
         t.insert("end",
@@ -89,6 +91,17 @@ class AboutPage(BasePage):
                  "•  minio-py 7.x（S3 客户端）  /  cryptography（Fernet 加密）"
                  "  /  Pillow（图标）\n"
                  "•  4 层架构：config / core / services / ui\n", "body")
+
+        t.insert("end", "许可\n", "h2")
+        t.insert("end",
+                 "GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)\n"
+                 "SPDX-License-Identifier: AGPL-3.0-or-later\n"
+                 "https://www.gnu.org/licenses/agpl-3.0.html\n\n"
+                 "本程序是自由软件：你可以遵照 GNU Affero 通用公共许可证第 3 版或后续版本的规定，"
+                 "重新分发和/或修改它。\n"
+                 "本程序旨在广泛共享，但不提供任何担保；甚至不包含适销性和特定用途适用性的默示保证。\n"
+                 "如果你修改本程序并通过网络向公众提供服务（SaaS、Web、API 等在线服务），"
+                 "你必须向该服务的使用者提供对应修改后的完整源代码。\n", "body")
 
         t.insert("end", "致谢\n", "h2")
         t.insert("end",

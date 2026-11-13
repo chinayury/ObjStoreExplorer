@@ -1,8 +1,8 @@
 # Project: ObjStoreExplorer 对象存储管理工具
-# Copyright (c) 2026 智维工作室 All Rights Reserved.
-# 著作权由智维工作室对应的自然人主体持有。
-# 本源码受著作权法保护，仅获得许可方可使用。
-# 禁止未经许可分发、转售、开源。
+# Copyright (C) 2026 智维ITMSKY
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# 开发者：智维ITMSKY  |  官网：http://www.itmsky.com
+# 许可证：GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)
 
 """主窗口 —「暮橙 Emberline」外壳
 
@@ -538,7 +538,11 @@ class MainWindow:
             "  • 4 层架构 (config/core/services/ui)\n"
             "  • 完整功能: 搜索/剪贴板/缓存/预览\n"
             "  • 用户/策略/版本控制/生命周期管理\n\n"
-            "Icons: Lucide (ISC License) — https://lucide.dev",
+            "Icons: Lucide (ISC License) — https://lucide.dev\n\n"
+            "Copyright (C) 2026 智维ITMSKY\n"
+            "开发者: 智维ITMSKY    官网: http://www.itmsky.com\n"
+            "License: AGPL-3.0-or-later\n"
+            "SPDX-License-Identifier: AGPL-3.0-or-later",
         )
 
     def _on_close(self) -> None:
