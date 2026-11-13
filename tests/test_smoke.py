@@ -111,3 +111,85 @@ def test_encryptor_roundtrip(tmp_path):
     ciphertext = enc.encrypt("minio-secret-key")
     assert ciphertext != "minio-secret-key"
     assert enc.decrypt(ciphertext) == "minio-secret-key"
+
+
+# ==================== 检查更新 (只查询, 不自更新) ====================
+
+
+def test_update_checker_parse_version():
+    from objstoreexplorer.utils.update_checker import parse_version
+
+    assert parse_version("v0.2.1") == parse_version("0.2.1") == (0, 2, 1)
+    assert parse_version("1.0.0") > parse_version("0.99.99")
+    try:
+        parse_version("not-a-version")
+        raise AssertionError("非法版本号应当抛 ValueError")
+    except ValueError:
+        pass
+
+
+def test_update_checker_offline_graceful(monkeypatch):
+    """网络失败必须返回 ok=False 的统一结果, 不抛异常、不误报有更新"""
+    import objstoreexplorer.utils.update_checker as uc
+
+    def _boom(*args, **kwargs):
+        raise TimeoutError("network unreachable")
+
+    monkeypatch.setattr(uc.urllib.request, "urlopen", _boom)
+    res = uc.check_update(current="0.1.0")
+    assert res["ok"] is False
+    assert res["update_available"] is False
+    assert res["error"]
+    assert res["current"] == "0.1.0"
+
+
+def test_update_checker_found_newer(monkeypatch):
+    """tag v9.9.9 且当前 0.1.0: 应判出 update_available 并带下载页"""
+    import json as _json
+
+    import objstoreexplorer.utils.update_checker as uc
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return _json.dumps(
+                {"tag_name": "v9.9.9", "html_url": "https://example.test/rel"}
+            ).encode("utf-8")
+
+    monkeypatch.setattr(uc.urllib.request, "urlopen", lambda *a, **k: _Resp())
+    res = uc.check_update(current="0.1.0")
+    assert res["ok"] is True
+    assert res["update_available"] is True
+    assert res["latest"] == "9.9.9"
+    assert res["release_url"] == "https://example.test/rel"
+
+
+def test_update_check_endpoint(admin_client, monkeypatch):
+    """登录后可调用; 未登录 (anon) 会被会话中间件拦截, 不测网络真调"""
+    import objstoreexplorer.utils.update_checker as uc
+
+    monkeypatch.setattr(
+        uc, "check_update",
+        lambda *a, **k: {"ok": True, "update_available": True,
+                         "current": "0.1.0", "latest": "9.9.9",
+                         "release_url": "https://example.test/rel",
+                         "error": None})
+    resp = admin_client.get("/api/update-check")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["data"]["update_available"] is True
+    assert body["data"]["latest"] == "9.9.9"
+
+
+def test_about_page_has_update_check(admin_client):
+    """关于页渲染包含检查更新入口 (版本号由后端注入, 模板不硬编码)"""
+    resp = admin_client.get("/about")
+    assert resp.status_code == 200
+    assert "btn-check-update" in resp.text
+    assert "/api/update-check" in resp.text

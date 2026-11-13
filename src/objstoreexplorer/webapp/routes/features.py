@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from ..deps import require_api_user, _APIException, get_web_session
 from ..state import get_state
+from ...utils import update_checker
 
 router = APIRouter(prefix="/api")
 
@@ -218,3 +219,25 @@ def api_delete_lifecycle(request: Request, bucket: str):
     _log(sess, "lifecycle_delete", bucket, ok, msg)
     _track(sess, "lifecycle", ok, msg)
     return {"success": ok, "message": msg}
+
+
+# ==================== 检查更新 (只查询, 不自更新) ====================
+
+
+@router.get("/update-check")
+def api_update_check(request: Request):
+    """匿名查询 GitHub Releases 最新版本 (借鉴 Pail: 只提示, 不静默自更新)。
+
+    不依赖 S3 连接, 登录用户即可调用; 查询走服务端而不是浏览器, 避免内网
+    部署时直连 GitHub 失败。网络失败不抛 5xx —— 返回 success=False 与原因,
+    前端如实展示, 不假装"已是最新"。
+    """
+    require_api_user(request)
+    res = update_checker.check_update()
+    if not res["ok"]:
+        return {"success": False, "message": f"检查失败: {res['error']}", "data": None}
+    if res["update_available"]:
+        message = f"发现新版本 v{res['latest']}（当前 v{res['current']}）"
+    else:
+        message = f"已是最新版本（v{res['current']}）"
+    return {"success": True, "message": message, "data": res}

@@ -32,6 +32,15 @@ RUN pip install --no-cache-dir -r requirements-web.txt
 COPY src ./src
 RUN pip install --no-cache-dir --no-deps .
 
+# 非 root 运行 (借鉴 filestash / SFTPGo 镜像实践): 专用系统用户, 固定 uid 10001
+# 便于宿主机对挂载的 data 卷做 chown。运行期可写位置只有 /app/data (卷) 与 /tmp
+# (compose 里配 tmpfs), 根文件系统只读不受影响
+RUN useradd --system --create-home --uid 10001 --shell /usr/sbin/nologin ose \
+    && mkdir -p /app/data \
+    && chown -R ose:ose /app
+ENV HOME=/home/ose
+USER ose
+
 # 容器内端口 (compose 映射宿主 6083 -> 容器 8000)
 EXPOSE 8000
 

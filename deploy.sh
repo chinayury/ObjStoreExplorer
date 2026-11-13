@@ -10,6 +10,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 mkdir -p data
+# 非 root 容器 (uid 10001) 写 data 卷: 首次部署或从 root 容器迁移时修正属主
+chown -R 10001:10001 data 2>/dev/null || true
 docker compose up -d --build
 
 echo

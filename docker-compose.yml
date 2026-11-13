@@ -25,3 +25,12 @@ services:
       # WEB_WORKERS: "2" # 可选: uvicorn worker 进程数 (默认 1)。会话/连接/任务已外置
       #                  # SQLite (data 卷), 多 worker 可用; 调大前提与注意见 README
     restart: unless-stopped
+    # 容器加固 (借鉴 filestash / SFTPGo 镜像实践): 非 root 镜像之上, 只读根
+    # 文件系统 + 全量 drop capabilities + 禁止提权; 可写仅限 data 卷与 tmpfs /tmp
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

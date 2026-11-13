@@ -4,15 +4,19 @@
 # 开发者：智维ITMSKY  |  官网：http://www.itmsky.com
 # 许可证：GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)
 
-"""关于页面 — 版本 / 功能 / 技术栈 (「暮橙 Emberline」)"""
+"""关于页面 — 版本 / 功能 / 技术栈 / 检查更新 (「暮橙 Emberline」)"""
 from __future__ import annotations
 import tkinter as tk
+from tkinter import messagebox
 
 from ..pages.base_page import BasePage
 from ..styles import Brand, Neutral, Space, UIFont
+from ..threading_bridge import run_async
 from ..widgets.page_header import PageHeader
+from ..widgets.buttons import create_secondary_button
 from ..widgets.card import Card
 from ...config.settings import APP_VERSION
+from ...utils.update_checker import check_update
 
 
 class AboutPage(BasePage):
@@ -111,6 +115,56 @@ class AboutPage(BasePage):
 
         t.config(state="disabled")
 
+        # 检查更新 (只查询, 不自更新): 匿名查 GitHub Releases, 后台线程执行,
+        # 结果回主线程弹窗展示 —— 与 Web 端 /about 的入口保持同一口径
+        update_card = Card(self.frame, title="检查更新", icon="refresh-cw")
+        update_card.pack(fill=tk.X,
+                         padx=Space.HERO_PAD_X, pady=(0, Space.HERO_PAD_Y))
+        hint = tk.Label(
+            update_card.body, justify=tk.LEFT, anchor="w", wraplength=560,
+            text="匿名查询 GitHub Releases 最新版本（不上传任何本机信息，"
+                 "不做静默自动更新）。升级请到下载页获取新版本，并用 Release "
+                 "附件 SHA256SUMS.txt 校验完整性。",
+            font=UIFont.caption(), fg=Neutral.TEXT_3, bg=Neutral.BG_PANEL,
+        )
+        hint.pack(fill=tk.X, padx=Space.MD, pady=(Space.SM, 0))
+        self._btn_check = create_secondary_button(
+            update_card.body, "检查更新", command=self._on_check_update)
+        self._btn_check.pack(anchor="w", padx=Space.MD, pady=Space.SM)
+
+    def _on_check_update(self) -> None:
+        """点击「检查更新」: 后台线程查询, 按钮期间置灰防重复点击"""
+        self._btn_check.config(state=tk.DISABLED, text="正在查询…")
+        run_async(
+            self.frame,
+            lambda: check_update(),
+            on_ok=self._show_update_result,
+            on_err=self._show_update_error,
+            task_name="检查更新",
+        )
+
+    def _show_update_result(self, res: dict) -> None:
+        self._btn_check.config(state=tk.NORMAL, text="检查更新")
+        if not res.get("ok"):
+            messagebox.showwarning(
+                "检查更新", f"检查失败：{res.get('error')}", parent=self.frame)
+            return
+        if res.get("update_available"):
+            messagebox.showinfo(
+                "检查更新",
+                f"发现新版本 v{res['latest']}（当前 v{res['current']}）。\n\n"
+                f"下载页面：\n{res['release_url']}\n\n"
+                "升级后请用 Release 附件 SHA256SUMS.txt 校验完整性。",
+                parent=self.frame)
+        else:
+            messagebox.showinfo(
+                "检查更新", f"已是最新版本（v{res['current']}）。", parent=self.frame)
+
+    def _show_update_error(self, exc: Exception) -> None:
+        self._btn_check.config(state=tk.NORMAL, text="检查更新")
+        messagebox.showerror(
+            "检查更新", f"检查失败：{exc}", parent=self.frame)
+
     def refresh(self) -> None:
-        """关于页是纯静态，无需刷新"""
+        """关于页为静态内容 + 手动触发的检查更新, 无需定时刷新"""
         pass

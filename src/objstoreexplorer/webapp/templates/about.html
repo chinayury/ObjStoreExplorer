@@ -51,4 +51,39 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     Web 框架: FastAPI + Uvicorn · 模板: Jinja2 · 密码哈希: bcrypt · 加密: cryptography (Fernet)
   </p>
 </div>
+<div class="card">
+  <h2>检查更新 <span class="sub-note">只查询, 不静默自更新</span></h2>
+  <p class="note-line" style="line-height:2.1">
+    匿名查询 GitHub Releases 最新版本（服务端发起, 不上传任何本机信息, 不做静默自动更新）。
+    升级请到下载页获取新版本, 并用 Release 附件 <code>SHA256SUMS.txt</code> 校验完整性。
+  </p>
+  <button id="btn-check-update" class="btn"><svg class="ic"><use href="#i-refresh"/></svg>检查更新</button>
+  <span id="update-result" class="sub-note" style="margin-left:8px"></span>
+</div>
+<script>
+  (function () {
+    var btn = document.getElementById("btn-check-update");
+    var out = document.getElementById("update-result");
+    if (!btn) return;
+    btn.addEventListener("click", async function () {
+      btn.disabled = true;
+      out.textContent = "正在查询…";
+      try {
+        var body = (await OSE.api("GET", "/api/update-check")).data;
+        if (body && body.success && body.data) {
+          var d = body.data;
+          out.textContent = d.update_available
+            ? "发现新版本 v" + d.latest + "（当前 v" + d.current + "）— " + d.release_url
+            : "已是最新版本（v" + d.current + "）";
+        } else {
+          out.textContent = (body && body.message) || "检查失败, 请稍后重试";
+        }
+      } catch (e) {
+        out.textContent = "检查失败, 请稍后重试";
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  })();
+</script>
 {% endblock %}

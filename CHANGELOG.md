@@ -4,6 +4,41 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [v0.2.0 · 每周维护第一轮] — 2026-11-14 · 版本单一来源收敛 · 容器加固 · 检查更新
+
+> 本轮为每周自动维护循环首轮（调研借鉴 → Issues 巡检 → 优化 → 发布 → 清理验证）。
+> GitHub 开放 Issues 巡检：0 条待处置。同类项目调研与借鉴清单见 [docs/06-同类项目调研与借鉴.md](docs/06-同类项目调研与借鉴.md)。
+
+### 🆕 Added
+
+- **检查更新（只查询，不自更新）**：桌面版「关于」页与 Web 端 `/about` 新增「检查更新」入口，
+  匿名查询 GitHub Releases 最新版本并与当前版本比对；新增 `utils/update_checker.py`
+  （统一结果、永不抛异常）与 `GET /api/update-check`（登录用户可用，服务端代理查询），
+  网络失败优雅降级、不误报「已是最新」。借鉴 Pail 的保守升级口径：不做静默自动下载替换
+  （产物未签名，避免供应链风险），只提示新版本号、下载页与 `SHA256SUMS.txt` 校验指引。
+- **[docs/06-同类项目调研与借鉴.md](docs/06-同类项目调研与借鉴.md)**：每轮维护的同类项目
+  候选总表（本轮 30+ 候选、深读 6 个）、借鉴要点与落地状态（8 条）、未采纳及理由（11 条）。
+
+### 🔄 Changed
+
+- **版本号单一来源彻底收敛**：`webapp/__init__.py` 不再保存字面量，改为从
+  `config.settings.APP_VERSION` 转发（与包级 `__init__` 同模式）；`docker-compose.yml`
+  镜像标签参数化为 `${OSE_IMAGE_TAG:-latest}`，发版不再需要改 compose；
+  冒烟测试同步改为「不得硬编码」断言防回归。
+- **容器安全加固**（借鉴 filestash / SFTPGo 镜像实践）：镜像以专用系统用户
+  `ose`（uid 10001）运行；compose 开启只读根文件系统（`read_only: true`）、
+  `cap_drop: [ALL]` 最小能力集与 `no-new-privileges`；运行期可写位置收敛为
+  `data` 卷与 tmpfs `/tmp`；`deploy.sh` 自动修正 data 卷属主
+  （从旧版 root 容器迁移须先 `chown -R 10001:10001 data`，见 docs/02 §2.3）。
+- 文档版本口径同步：`docs/` 头部改为「依据当前源码编写」，产物名改用 `<version>` 占位，
+  避免每轮发版翻改历史文档；`docs/README.md` 文档索引新增 06 条目。
+
+### 🐛 Fixed
+
+- `build.py` 版本读取失败提示中的硬编码示例版本号泛化为 `x.y.z`（消除下一版发版时的误导）。
+
+---
+
 ## [许可与署名更正] — 2026-11-13 · 署名统一为「智维ITMSKY」
 
 > 版本号保持 v0.1.0 不变；只更正署名与许可声明，不改业务逻辑。
