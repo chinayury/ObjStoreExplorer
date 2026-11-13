@@ -18,8 +18,8 @@
 - **许可声明**：删除与 AGPL-3.0 冲突的「禁止未经许可分发、转售、开源」表述，
   明确本项目以 AGPL-3.0-or-later 发布；README 与两处关于页补充 AGPL 四段中文声明
   （自由软件、无担保、网络服务源码义务、许可证副本获取方式）。
-- **README / LICENSE.md**：许可章节改为「许可与信息」，列出开发者、版权、官网、许可证与 SPDX；
-  `LICENSE.md` 顶部补充项目版权与 SPDX 声明（AGPL 正文未改动）。
+- **README / LICENSE.md / NOTICE**：许可章节改为「许可与信息」，列出开发者、版权、官网、许可证与 SPDX；
+  新增 `NOTICE` 承载项目版权与 SPDX 声明；`LICENSE.md` 恢复为纯 AGPL 原文，确保 GitHub 正确识别许可证类型。
 - **pyproject.toml**：`authors.name` 改为「智维ITMSKY」，`[project.urls]` 增加 Homepage。
 - **关于页面**：桌面版「关于」页与 Web 版 `/about` 增加开发者、官网、版权、许可证、SPDX 与声明文本；
   `__author__` 同步为「智维ITMSKY <41469858@qq.com>」。

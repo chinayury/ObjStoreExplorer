@@ -209,7 +209,7 @@ Endpoint 要写 `主机:端口`。不写端口且不写协议时按 MinIO 默认
 - **版权**：Copyright (C) 2026 智维ITMSKY
 - **官网**：http://www.itmsky.com
 - **许可证**：[GNU Affero General Public License v3.0 or later](LICENSE.md)（AGPL-3.0-or-later）
-- **SPDX-License-Identifier**：`AGPL-3.0-or-later`
+- **SPDX**：`SPDX-License-Identifier: AGPL-3.0-or-later`
 
 > 本程序是自由软件：你可以遵照 GNU Affero 通用公共许可证第 3 版或后续版本的规定，重新分发和/或修改它。
 >
