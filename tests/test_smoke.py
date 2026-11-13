@@ -17,14 +17,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_version_consistency():
-    """版本号三个声明位置 + compose 镜像标签必须同号"""
+    """版本号唯一真源: 代码各处转发一致, compose 镜像标签不硬编码版本"""
     from objstoreexplorer import __version__ as pkg_version
     from objstoreexplorer.config.settings import APP_VERSION
     from objstoreexplorer.webapp import __version__ as web_version
 
+    # 代码侧: 包级 / webapp 均为 settings.APP_VERSION 的转发
     assert APP_VERSION == web_version == pkg_version
+    # compose 侧: 镜像标签参数化 (OSE_IMAGE_TAG 可覆盖), 不得再硬编码 vX.Y.Z
     compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
-    assert f"objstoreexplorer-web:v{APP_VERSION}" in compose
+    assert "objstoreexplorer-web:${OSE_IMAGE_TAG:-latest}" in compose
+    assert f"objstoreexplorer-web:v{APP_VERSION}" not in compose
+    # webapp 包不得再回退为字面量声明 (防回归)
+    web_init = (PROJECT_ROOT / "src" / "objstoreexplorer" / "webapp" / "__init__.py").read_text(encoding="utf-8")
+    assert f'__version__ = "{APP_VERSION}"' not in web_init
 
 
 def test_health_endpoint(anon):

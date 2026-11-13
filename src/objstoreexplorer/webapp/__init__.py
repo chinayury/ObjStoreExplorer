@@ -9,13 +9,15 @@
 FastAPI + Jinja2 + HTMX 的浏览器访问版, 复用桌面版 core/ 与 config/ 层,
 与 Tkinter 桌面版并存 (桌面版零改动)。
 
-版本口径 (v0.1.0 正式稳定版): 本模块 __version__ 是 Web 版版本唯一真源,
-与桌面版 config.settings.APP_VERSION、docker-compose 镜像标签统一为 0.1.0。
-(桌面版 0.1.0 → Web 内部迭代 2.0~2.4 → 归一 v0.1.0 的完整线索见
-CHANGELOG.md 与 docs/版本迭代说明-v0.1.0.md)
+版本口径: 版本号唯一真源是 config.settings.APP_VERSION。本模块与包级
+__init__ 一样只做转发, 不再另存字面量 —— 历史上 Web 版曾独立维护字面量
+(桌面版 0.1.0 → Web 内部迭代 2.0~2.4 → v0.1.0 归一, 完整线索见
+CHANGELOG.md), 归一后两处字面量仍有漂移隐患, 现已彻底收敛为单一来源。
 
 用法:
-    uvicorn webapp.main:app --host 0.0.0.0 --port 8000
+    uvicorn objstoreexplorer.webapp.main:app --host 0.0.0.0 --port 8000
 """
 
-__version__ = "0.1.0"
+from ..config.settings import APP_VERSION as __version__
+
+__all__ = ["__version__"]

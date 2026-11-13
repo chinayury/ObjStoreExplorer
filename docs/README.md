@@ -1,7 +1,7 @@
-# ObjStoreExplorer v0.1.0 — 文档索引
+# ObjStoreExplorer — 文档索引
 
-本目录为 **ObjStoreExplorer 对象存储管理工具**（v0.1.0 正式稳定版）的正式交付文档。
-所有功能描述、参数取值、限制条件均严格依据 v0.1.0 源码编写，可在对应源文件中核实。
+本目录为 **ObjStoreExplorer 对象存储管理工具** 的正式交付文档。
+所有功能描述、参数取值、限制条件均严格依据当前源码编写，可在对应源文件中核实。
 
 > 项目提供**双形态**交付：桌面版（Tkinter，单人本地）与 Web 容器版（FastAPI + Docker，多人浏览器访问）。
 > 两形态复用同一套 `core/` `services/` `config/` 业务层（均位于 `src/objstoreexplorer/` 包内），仅界面与入口不同。
@@ -32,7 +32,8 @@
 ## 两条必须知道的约定
 
 1. **版本号唯一真源**是 `src/objstoreexplorer/config/settings.py` 的 `APP_VERSION`，当前值 `0.1.0`。
-   `src/objstoreexplorer/webapp/__init__.py` 与 `docker-compose.yml` 镜像标签同号，三处一致。
+   包级 `__init__.py` 与 `webapp/__init__.py` 均为其转发；`docker-compose.yml` 镜像标签已参数化
+   （`OSE_IMAGE_TAG`，默认 `latest`），不随版本硬编码。
 2. **安全口径**：桌面版是纯本地应用、不监听端口，说明覆盖**本地攻击面防护**；
    Web 版暴露 HTTP 端口，说明覆盖**服务端安全设计**（权限矩阵、XSS、路径穿越、会话等）。
    两者分别说明，不混淆。

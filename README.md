@@ -15,9 +15,10 @@
 `config/` 业务层（均位于 `src/objstoreexplorer/` 包内），数据目录互通（连接历史/操作日志共享）。
 桌面版**不监听任何网络端口**，Web 版默认监听容器内 8000（compose 映射宿主 6083）。
 
-> **版本口径**：桌面版与 Web 容器版已归一为同一版本号，唯一真源为
-> `src/objstoreexplorer/config/settings.py` 的 `APP_VERSION`，
-> `webapp/__init__.py` 与 compose 镜像标签同号。完整线索见
+> **版本口径**：桌面版与 Web 容器版共用同一版本号，唯一真源为
+> `src/objstoreexplorer/config/settings.py` 的 `APP_VERSION`；
+> 包级 `__init__.py` 与 `webapp/__init__.py` 均为其转发，compose 镜像标签已参数化
+> （`OSE_IMAGE_TAG`，默认 `latest`），不随版本硬编码。完整线索见
 > [CHANGELOG](CHANGELOG.md) 与 [docs/05-开发日志](docs/05-开发日志.md)。
 
 ---

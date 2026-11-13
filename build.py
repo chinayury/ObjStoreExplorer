@@ -67,7 +67,7 @@ def _detect_version() -> str:
     if not m:
         raise ValueError(
             f"{settings_file} 里读不到 APP_VERSION 定义。\n"
-            "请确认该文件里有形如 APP_VERSION = \"0.1.0\" 的赋值。"
+            "请确认该文件里有形如 APP_VERSION = \"x.y.z\" 的赋值。"
         )
     return m.group(1)
 

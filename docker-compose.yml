@@ -11,7 +11,9 @@ services:
       context: .
       args:
         PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple # 海外服务器可整段删掉
-    image: objstoreexplorer-web:v0.1.0
+    # 镜像标签不再随版本硬编码 (避免每次发布改这里): 默认 latest, 可用
+    # OSE_IMAGE_TAG=v0.2.0 覆盖固定到某个发布版
+    image: objstoreexplorer-web:${OSE_IMAGE_TAG:-latest}
     container_name: objstoreexplorer-web
     ports:
       - "6083:8000" # 宿主端口改左半边 (18080: 该服务器 8080 已被其他容器占用)
