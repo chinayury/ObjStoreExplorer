@@ -1,0 +1,43 @@
+# Docker 构建上下文排除清单
+# 目标: 镜像只装运行所需代码; 不把用户数据 / 打包产物 / 敏感脚本带进镜像
+
+# 版本管理 / CI
+.git
+.gitignore
+.gitlab-ci.yml
+
+# 运行时用户数据 (含 web.db / explorer.key / config.db, 绝不入镜像)
+data/
+downloads/
+
+# 打包产物
+build/
+dist/
+*.exe
+*.zip
+
+# 开发目录 (镜像内不需要)
+tests/
+scripts/
+docs/
+.mimosa/
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# 桌面版 GUI (Web 镜像不含 Tkinter UI 层)
+src/objstoreexplorer/ui/
+build.py
+build.spec
+main.py
+
+# Docker 自身文件
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 文档
+README.md
+change.md
+CHANGELOG.md

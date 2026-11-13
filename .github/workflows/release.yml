@@ -1,0 +1,218 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+  actions: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/objstoreexplorer
+
+jobs:
+  verify:
+    name: Verify version & tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-web.txt
+            requirements-dev.txt
+
+      - name: Check tag matches APP_VERSION
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          CODE_VERSION=$(python -c "import sys; sys.path.insert(0,'src'); from objstoreexplorer.config.settings import APP_VERSION; print(APP_VERSION)")
+          echo "tag=$VERSION code=$CODE_VERSION"
+          test "$VERSION" = "$CODE_VERSION"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+          python -m pip install --no-deps -e .
+
+      - name: Run smoke tests
+        env:
+          TZ: Asia/Shanghai
+        run: python -m pytest -v
+
+  build-python:
+    name: Build wheel & sdist
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build distributions
+        working-directory: ${{ runner.temp }}
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "build>=1.2,<2.0"
+          # 不能在本项目根目录跑 `python -m build`: 根目录的 build.py 会遮蔽 build 包
+          python -m build "$GITHUB_WORKSPACE" --outdir "$GITHUB_WORKSPACE/dist"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-python
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  build-windows:
+    name: Build Windows onedir zip
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install "pyinstaller>=6.10,<7.0"
+
+      - name: Build desktop package
+        run: python build.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows
+          path: |
+            dist/ObjStoreExplorer-v*-win-x64.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  docker:
+    name: Build & push GHCR image
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false
+
+  release:
+    name: Create GitHub Release
+    needs: [build-python, build-windows, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -l release-assets
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" release-assets/* --generate-notes --title "$TAG"
+          fi
+
+  cleanup:
+    name: Cleanup old packages & artifacts
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Delete old release assets (keep release records)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CURRENT="${GITHUB_REF_NAME}"
+          gh release list --limit 100 --json tagName --jq '.[].tagName' | while read -r tag; do
+            if [ "$tag" = "$CURRENT" ]; then
+              continue
+            fi
+            gh release view "$tag" --json assets --jq '.assets[].name' | while read -r asset; do
+              [ -n "$asset" ] && gh release delete-asset "$tag" "$asset" --yes
+            done
+          done
+
+      - name: Delete old GHCR image versions (keep latest & current)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CURRENT="${GITHUB_REF_NAME#v}"
+          gh api "/user/packages/container/objstoreexplorer/versions" --paginate \
+            --jq '.[] | [.id, ((.metadata.container.tags // []) | join(","))] | @tsv' |
+          while IFS=$'\t' read -r id tags; do
+            if echo ",$tags," | grep -qE ",(latest|${CURRENT}),"; then
+              continue
+            fi
+            echo "delete GHCR version $id ($tags)"
+            gh api -X DELETE "/user/packages/container/objstoreexplorer/versions/$id"
+          done
+
+      - name: Delete historical workflow artifacts (keep current run)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --paginate \
+            --jq ".artifacts[] | select(.workflow_run.id != ${GITHUB_RUN_ID}) | .id" |
+          while read -r id; do
+            [ -n "$id" ] && gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/$id"
+          done

@@ -1,0 +1,207 @@
+{#
+Project: ObjStoreExplorer 对象存储管理工具
+Copyright (c) 2026 智维工作室 All Rights Reserved.
+著作权由智维工作室对应的自然人主体持有。
+本源码受著作权法保护，仅获得许可方可使用。
+禁止未经许可分发、转售、开源。
+#}
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}ObjStoreExplorer Web{% endblock %}</title>
+<link rel="stylesheet" href="/static/css/app.css">
+<script>
+/* 页面级共享上下文 (由服务端注入) */
+window.OSE = {
+  user: {{ user | tojson }},
+  connected: {{ 'true' if connected else 'false' }},
+  endpoint: {{ (endpoint or '') | tojson }},
+  adminAvailable: {{ 'true' if admin_available else 'false' }},
+  isAdmin: {{ 'true' if user.role == 'admin' else 'false' }}
+};
+</script>
+</head>
+<body data-page="{% block page_id %}{% endblock %}">
+
+{# ============ 圆头线性图标库 (暮橙 Emberline 设计系统 · 全站共用, stroke 2.0) ============ #}
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-logo" viewBox="0 0 24 24"><path d="M12 2.8 20 7.4v9.2L12 21.2 4 16.6V7.4z"/><path d="M12 7.6l4.2 2.4v4.6L12 17l-4.2-2.4v-4.6z"/><path d="M12 7.6v4.4M12 12v4.6"/></symbol>
+  <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3.4" y="3.4" width="7.2" height="7.2" rx="2.4"/><rect x="13.4" y="3.4" width="7.2" height="7.2" rx="2.4"/><rect x="3.4" y="13.4" width="7.2" height="7.2" rx="2.4"/><path d="M13.4 17h7.2M17 13.4v7.2"/></symbol>
+  <symbol id="i-bucket" viewBox="0 0 24 24"><path d="M4.8 5h14.4l-1.4 14.2a1.8 1.8 0 0 1-1.8 1.6H8a1.8 1.8 0 0 1-1.8-1.6z"/><path d="M8.8 5V3.6A1.6 1.6 0 0 1 10.4 2h3.2a1.6 1.6 0 0 1 1.6 1.6V5"/><path d="M9.6 9.6c1.5 1.1 3.3 1.1 4.8 0"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.6 8.4A2.4 2.4 0 0 1 6 6h3.2l2.2 2.6h6.6A2.4 2.4 0 0 1 20.4 11v6A2.4 2.4 0 0 1 18 19.4H6a2.4 2.4 0 0 1-2.4-2.4z"/><path d="M3.6 11.8h16.8"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M13.4 3H7.4A2.4 2.4 0 0 0 5 5.4v13.2A2.4 2.4 0 0 0 7.4 21h9.2a2.4 2.4 0 0 0 2.4-2.4V8.6z"/><path d="M13.4 3v5.6h5.6"/><path d="M8.8 13.2h6.4M8.8 16.6h4.4"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="7.8" r="4"/><path d="M4.8 20.8c.9-4 3.9-6.4 7.2-6.4s6.3 2.4 7.2 6.4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.8 19.6 5.8v5.6c0 4.9-3.2 8.3-7.6 9.8-4.4-1.5-7.6-4.9-7.6-9.8V5.8z"/><path d="m8.8 11.8 2.3 2.3 4.1-4.6"/></symbol>
+  <symbol id="i-version" viewBox="0 0 24 24"><circle cx="5.8" cy="5.6" r="2.2"/><circle cx="5.8" cy="18.4" r="2.2"/><circle cx="18.2" cy="12" r="2.2"/><path d="M5.8 7.8v8.4M8 18.4h5.4a3.2 3.2 0 0 0 3.2-3.2 3.2 3.2 0 0 0-3.2-3.2H5.8"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><path d="M12 6.6v5.8l4 2.4"/></symbol>
+  <symbol id="i-logs" viewBox="0 0 24 24"><rect x="5" y="2.8" width="14" height="18.4" rx="2.6"/><path d="M8.6 7.8h6.8M8.6 11.6h6.8M8.6 15.4h4.4"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M4 6.4h10M18 6.4h2M4 12h2M10 12h10M4 17.6h10M18 17.6h2"/><circle cx="16" cy="6.4" r="2.1"/><circle cx="8" cy="12" r="2.1"/><circle cx="16" cy="17.6" r="2.1"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><path d="M12 10.8v5.4"/><path d="M12 7.4h.01"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4.6v14.8M4.6 12h14.8"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15.4V4.2"/><path d="m7.2 9 4.8-4.8L16.8 9"/><path d="M4.4 14.8v4A2.4 2.4 0 0 0 6.8 21.2h10.4a2.4 2.4 0 0 0 2.4-2.4v-4"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11.2"/><path d="m7.2 10.4 4.8 4.8 4.8-4.8"/><path d="M4.4 14.8v4A2.4 2.4 0 0 0 6.8 21.2h10.4a2.4 2.4 0 0 0 2.4-2.4v-4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20.4 12a8.4 8.4 0 1 1-2.5-6"/><path d="M20.8 3.4v4.8h-4.8"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M8.6 6.6V2.8M15.4 6.6V2.8"/><path d="M6 6.6h12v5a6 6 0 0 1-12 0z"/><path d="M12 17.6v3.6"/></symbol>
+  <symbol id="i-unplug" viewBox="0 0 24 24"><path d="M8.6 6.6V2.8M15.4 6.6V2.8"/><path d="M6 6.6h12v5a6 6 0 0 1-12 0z"/><path d="M12 17.6v3.6"/><path d="m3.6 3.6 16.8 16.8"/></symbol>
+  <symbol id="i-tasks" viewBox="0 0 24 24"><rect x="5.4" y="4" width="13.2" height="17" rx="2.6"/><path d="M9.4 2.6h5.2v3.2H9.4z"/><path d="m8.8 12.2 2 2 3.8-4.2"/><path d="M8.8 17h6.4"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14.6 7.8V5.4A2.4 2.4 0 0 0 12.2 3H6.2A2.4 2.4 0 0 0 3.8 5.4v13.2A2.4 2.4 0 0 0 6.2 21h6a2.4 2.4 0 0 0 2.4-2.4v-2.4"/><path d="M9.6 12h10.2"/><path d="m17 8.6 3.4 3.4L17 15.4"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><circle cx="5.8" cy="12" r="2.5"/><circle cx="17.4" cy="5.4" r="2.5"/><circle cx="17.4" cy="18.6" r="2.5"/><path d="m8.1 10.8 7.1-4.2M8.1 13.2l7.1 4.2"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.4" cy="10.4" r="6.6"/><path d="m15.6 15.6 4.8 4.8"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.2 6.4h15.6"/><path d="M8 6.4V4.8A1.8 1.8 0 0 1 9.8 3h4.4A1.8 1.8 0 0 1 16 4.8v1.6"/><path d="M6.4 6.4 7.3 19a1.8 1.8 0 0 0 1.8 1.6h5.8a1.8 1.8 0 0 0 1.8-1.6l.9-12.6"/><path d="M10 10.2v6M14 10.2v6"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20.2h4.2L20.4 8a2.4 2.4 0 0 0-3.4-3.4L4.8 16.8z"/><path d="m14.6 6.6 3.2 3.2"/><path d="M4 20.2l4.6-1.4"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11.6" height="11.6" rx="2.6"/><path d="M5 15.2V5.6A2.6 2.6 0 0 1 7.6 3h7.6"/></symbol>
+  <symbol id="i-cut" viewBox="0 0 24 24"><circle cx="6" cy="6.4" r="2.7"/><circle cx="6" cy="17.6" r="2.7"/><path d="m8 8.2 11.4 9.4M8 15.8 19.4 6.4"/></symbol>
+  <symbol id="i-paste" viewBox="0 0 24 24"><rect x="4.8" y="4.8" width="14.4" height="16.4" rx="2.6"/><rect x="9" y="2.6" width="6" height="3.8" rx="1.4"/><path d="M8.4 11.6h7.2M8.4 15h5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m5.8 5.8 12.4 12.4M18.2 5.8 5.8 18.2"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.6" y="4.6" width="16.8" height="14.8" rx="2.8"/><circle cx="8.8" cy="9.8" r="1.9"/><path d="M4 16.8 9.8 11.6l3.6 3.2 3.2-2.6 3.4 3"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="5.6" width="13.2" height="12.8" rx="2.8"/><path d="m16.2 10.4 4.8-2.8v8.8l-4.8-2.8z"/></symbol>
+  <symbol id="i-audio" viewBox="0 0 24 24"><path d="M3.6 14.4v-4.8M7.6 17.6V6.4M11.6 20.8V3.2M15.6 17.6V6.4M19.6 14.4v-4.8"/></symbol>
+  <symbol id="i-zip" viewBox="0 0 24 24"><path d="M13.4 3H7.4A2.4 2.4 0 0 0 5 5.4v13.2A2.4 2.4 0 0 0 7.4 21h9.2a2.4 2.4 0 0 0 2.4-2.4V8.6z"/><path d="M13.4 3v5.6h5.6"/><path d="M10.4 4.6v1.8M12.4 6.4v1.8M10.4 8.2v1.8"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="M8.4 6.6 3.6 12l4.8 5.4M15.6 6.6 20.4 12l-4.8 5.4"/><path d="M13.2 4.4l-2.4 15.2"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M13.4 3H7.4A2.4 2.4 0 0 0 5 5.4v13.2A2.4 2.4 0 0 0 7.4 21h9.2a2.4 2.4 0 0 0 2.4-2.4V8.6z"/><path d="M13.4 3v5.6h5.6"/><path d="M8.4 12.4h7.2M8.4 15.8h5"/></symbol>
+  <symbol id="i-data" viewBox="0 0 24 24"><ellipse cx="12" cy="5.4" rx="7.6" ry="2.8"/><path d="M4.4 5.4v13.2c0 1.5 3.4 2.8 7.6 2.8s7.6-1.3 7.6-2.8V5.4"/><path d="M4.4 12c0 1.5 3.4 2.8 7.6 2.8s7.6-1.3 7.6-2.8"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.4 12S6 5.6 12 5.6 21.6 12 21.6 12 18 18.4 12 18.4 2.4 12 2.4 12z"/><circle cx="12" cy="12" r="2.9"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.4 12.4 9.8 17.8 19.6 6.6"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3.4 21.8 20H2.2z"/><path d="M12 9.4v4.8"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.8" cy="14.6" r="4.2"/><path d="M10.9 11.5 20.4 2.6M15.2 6.8l3 3M12.4 9.6l2 2"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3.2" y="5.2" width="17.6" height="13.6" rx="2.8"/><path d="m4.2 6.8 7.8 6.2 7.8-6.2"/></symbol>
+</svg>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="logo"><svg class="ic"><use href="#i-logo"/></svg></span>
+      <span class="brand-txt"><b>ObjStoreExplorer</b><i>Emberline Console</i></span>
+    </div>
+    <nav>
+      {# 导航按业务域分组; 图标/文案集中配置。
+         active 高亮由 app.js 按 body[data-page] 精确点亮 (模板 block 在
+         循环内会令所有项同获 active, 属旧版存量 BUG)。 #}
+      {% set icons = {"overview":"i-dashboard","buckets":"i-bucket","objects":"i-folder","users":"i-user","policies":"i-shield","versioning":"i-version","lifecycle":"i-clock","logs":"i-logs","settings":"i-gear","about":"i-info"} %}
+      {% set labels = {"overview":"数据总览","buckets":"存储桶空间","objects":"对象资源管理","users":"MinIO 用户","policies":"访问策略","versioning":"版本控制","lifecycle":"生命周期","logs":"审计日志","settings":"系统设置","about":"关于"} %}
+      {% set groups = [("数据资产",["overview","buckets","objects"]),("访问控制",["users","policies"]),("存储治理",["versioning","lifecycle"]),("系统运维",["logs","settings","about"])] %}
+      {% for gname, gpages in groups %}
+      {% set visible = [] %}
+      {% for p in gpages %}{% if p in pages %}{% set _ = visible.append(p) %}{% endif %}{% endfor %}
+      {% if visible %}
+      <div class="nav-group">
+        <div class="group-label">{{ gname }}</div>
+        {% for p in visible %}
+        <a href="/{{ p }}" data-nav="{{ p }}">
+          <svg class="ic"><use href="#{{ icons[p] }}"/></svg><span class="txt">{{ labels[p] }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endfor %}
+    </nav>
+    <div class="side-foot">
+      <div class="u-line"><span class="u-name">{{ user.username }}</span><span class="badge-role {{ user.role }}">{{ user.role }}</span></div>
+      <button class="btn sm" onclick="OSE.logout()"><svg class="ic"><use href="#i-logout"/></svg>退出登录</button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <button class="btn primary" onclick="OSE.showConnect()"><svg class="ic"><use href="#i-plug"/></svg>连接</button>
+      <button class="btn" id="btn-disconnect" onclick="OSE.disconnect()"><svg class="ic"><use href="#i-unplug"/></svg>断开</button>
+      <button class="btn" onclick="OSE.refreshPage()"><svg class="ic"><use href="#i-refresh"/></svg>刷新</button>
+      <div class="spacer"></div>
+      <span class="conn-badge" id="conn-badge"><span class="dot"></span><span id="conn-text">未连接</span></span>
+      <button class="btn icon-only" id="task-fab" title="后台任务" onclick="OSE.showTasks()"><svg class="ic"><use href="#i-tasks"/></svg><span class="count" id="task-count"></span></button>
+    </div>
+    <div class="content"><div class="page">{% block content %}{% endblock %}</div></div>
+  </div>
+</div>
+
+<!-- 连接对话框 -->
+<div class="modal-mask" id="connect-modal">
+  <div class="modal">
+    <div class="modal-head">连接对象存储服务<button class="x" onclick="OSE.closeModal('connect-modal')"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div class="modal-body">
+      <div class="field">
+        <label>历史连接</label>
+        <select id="conn-history" onchange="OSE.fillHistory(this.value)"><option value="">— 选择历史连接 —</option></select>
+      </div>
+      <div class="field">
+        <label>Endpoint (不含协议前缀, 如 127.0.0.1:9000)</label>
+        <input type="text" id="conn-endpoint" placeholder="minio.example.com:9000">
+      </div>
+      <div class="field"><label>Access Key</label><input type="text" id="conn-ak" autocomplete="off"></div>
+      <div class="field"><label>Secret Key</label><input type="password" id="conn-sk" autocomplete="new-password"></div>
+      <div class="field">
+        <label class="check-line"><input type="checkbox" id="conn-ssl"> 使用 HTTPS (SSL)</label>
+        <label class="check-line" style="margin-top:6px"><input type="checkbox" id="conn-save" checked> 记住连接 (保存到历史)</label>
+      </div>
+      <div class="field">
+        <label>外链 Host (可选, 用于预签名分享链接)</label>
+        <input type="text" id="conn-external-host" placeholder="如 minio.example.com:9000, 留空则不启用">
+        <div class="hint">容器内网部署时: 连接填内网地址, 此处填外网可达主机名, 分享链接按该主机签名</div>
+      </div>
+      <div class="hint" id="conn-error" style="color:var(--danger);font-size:13px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="OSE.closeModal('connect-modal')">取消</button>
+      <button class="btn" id="conn-test" onclick="OSE.doConnect({testOnly:true})"><svg class="ic"><use href="#i-check"/></svg>测试连接</button>
+      <button class="btn primary" id="conn-submit" onclick="OSE.doConnect()"><svg class="ic"><use href="#i-plug"/></svg>连接</button>
+    </div>
+  </div>
+</div>
+
+<!-- 任务面板 -->
+<div class="modal-mask" id="tasks-modal">
+  <div class="modal wide">
+    <div class="modal-head">后台任务<button class="x" onclick="OSE.closeModal('tasks-modal')"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div class="modal-body"><div id="tasks-list" class="loading-tip">暂无任务</div></div>
+  </div>
+</div>
+
+<!-- 属性对话框 -->
+<div class="modal-mask" id="stat-modal">
+  <div class="modal">
+    <div class="modal-head">对象详情<button class="x" onclick="OSE.closeModal('stat-modal')"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div class="modal-body"><dl class="kv" id="stat-body"></dl></div>
+    <div class="modal-foot"><button class="btn" onclick="OSE.closeModal('stat-modal')">关闭</button></div>
+  </div>
+</div>
+
+<!-- 通用确认框 -->
+<div class="modal-mask" id="confirm-modal">
+  <div class="modal" style="width:420px">
+    <div class="modal-head" id="confirm-title">确认操作</div>
+    <div class="modal-body" id="confirm-text"></div>
+    <div class="modal-foot">
+      <button class="btn" onclick="OSE.closeModal('confirm-modal')">取消</button>
+      <button class="btn danger" id="confirm-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 通用输入框 (重命名/新建文件夹/新建桶等) -->
+<div class="modal-mask" id="prompt-modal">
+  <div class="modal" style="width:420px">
+    <div class="modal-head" id="prompt-title">输入信息</div>
+    <div class="modal-body">
+      <div class="field"><label id="prompt-label"></label><input type="text" id="prompt-input"></div>
+      <div class="field" id="prompt-extra-wrap" style="display:none"><label id="prompt-extra-label"></label><input type="text" id="prompt-extra"></div>
+      <div class="hint" id="prompt-hint"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="OSE.closeModal('prompt-modal')">取消</button>
+      <button class="btn primary" id="prompt-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 右键菜单 -->
+<div id="ctx-menu"></div>
+
+<div id="toast-box"></div>
+
+<script src="/static/js/app.js"></script>
+{% block page_js %}{% endblock %}
+</body>
+</html>

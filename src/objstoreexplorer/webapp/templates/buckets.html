@@ -1,0 +1,248 @@
+{#
+Project: ObjStoreExplorer 对象存储管理工具
+Copyright (c) 2026 智维工作室 All Rights Reserved.
+著作权由智维工作室对应的自然人主体持有。
+本源码受著作权法保护，仅获得许可方可使用。
+禁止未经许可分发、转售、开源。
+#}
+
+{% extends "base.html" %}
+{% block title %}存储桶空间 - ObjStoreExplorer Web{% endblock %}
+{% block page_id %}buckets{% endblock %}
+{% block nav_active %}active{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="head-txt"><span class="kicker">数据资产 · BUCKETS</span><h1>存储桶空间</h1><span class="page-desc">创建 / 删除 / 统计存储桶；非空桶可强制清空后删除，删除前自动快照</span></div>
+  <div class="spacer"></div>
+  {% if user.role == 'admin' %}<button class="btn primary" onclick="Buckets.create()"><svg class="ic"><use href="#i-plus"/></svg>新建桶</button>{% endif %}
+  <button class="btn" onclick="Buckets.load()"><svg class="ic"><use href="#i-refresh"/></svg>刷新列表</button>
+</div>
+<div class="card"><div id="bucket-table"><div class="loading-tip">加载中…</div></div></div>
+
+{% if user.role == 'admin' %}
+<div class="card">
+  <h2>跨域配置 (CORS) <span class="sub-note">浏览器直传 / 前端跨域访问需放行来源与方法</span></h2>
+  <div class="field" style="max-width:420px">
+    <label>选择桶</label>
+    <select id="cors-bucket"><option value="">— 选择桶 —</option></select>
+  </div>
+  <div id="cors-rules"></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+    <button class="btn" onclick="Buckets.loadCors()"><svg class="ic"><use href="#i-refresh"/></svg>读取配置</button>
+    <button class="btn primary" onclick="Buckets.saveCors()"><svg class="ic"><use href="#i-check"/></svg>保存配置</button>
+    <button class="btn ghost-danger" onclick="Buckets.deleteCors()"><svg class="ic"><use href="#i-trash"/></svg>删除配置</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>分片清理 <span class="sub-note">中断的上传会留下 invisible 分片并持续计费, 可在此中止</span></h2>
+  <div class="field" style="max-width:420px">
+    <label>选择桶</label>
+    <select id="mp-bucket"><option value="">— 选择桶 —</option></select>
+  </div>
+  <div id="mp-list"><div class="loading-tip">选择桶后查看未完成上传</div></div>
+  <div style="margin-top:10px"><button class="btn" onclick="Buckets.loadMultipart()"><svg class="ic"><use href="#i-refresh"/></svg>刷新列表</button></div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block page_js %}
+<script>
+(function () {
+  "use strict";
+  const canWrite = OSE.isAdmin;
+
+  async function load() {
+    const box = document.getElementById("bucket-table");
+    box.innerHTML = '<div class="loading-tip">加载中…</div>';
+    try {
+      const { data } = await OSE.get("/api/buckets");
+      if (!data.success) { box.innerHTML = `<div class="empty-state">${OSE.escapeHtml(data.message)}</div>`; return; }
+      const buckets = data.data || [];
+      if (!buckets.length) {
+        box.innerHTML = `<div class="empty-state"><div class="big">${OSE.icon("bucket")}</div>当前账号下没有存储桶</div>`;
+        return;
+      }
+      box.innerHTML = `<table class="grid"><thead><tr>
+        <th>桶名</th><th>操作</th></tr></thead><tbody>` +
+        buckets.map((b) => {
+          /* v0.1.0 防御性加固: 桶名经服务端校验为安全字符集, 但同样改为
+             data-bucket 属性 + 事件委托, 不再拼内联 onclick 字符串 */
+          const href = `/objects#bucket=${encodeURIComponent(b)}`;
+          const bAttr = encodeURIComponent(b);
+          return `<tr>
+          <td><b style="cursor:pointer;color:var(--primary)" data-act="open" data-bucket="${bAttr}">${OSE.escapeHtml(b)}</b></td>
+          <td>
+            <button class="btn sm" data-act="open" data-bucket="${bAttr}">打开</button>
+            <button class="btn sm" data-act="stats" data-bucket="${bAttr}">统计</button>
+            ${canWrite ? `<button class="btn sm ghost-danger" data-act="remove" data-bucket="${bAttr}">删除</button>` : ""}
+          </td></tr>`;
+        }).join("") + "</tbody></table>";
+      box.querySelectorAll("[data-act]").forEach((el) =>
+        el.addEventListener("click", () => {
+          const name = decodeURIComponent(el.dataset.bucket || "");
+          const act = el.dataset.act;
+          if (act === "open") location.href = `/objects#bucket=${encodeURIComponent(name)}`;
+          else if (act === "stats") stats(name);
+          else if (act === "remove") remove(name);
+        }));
+    } catch (e) { box.innerHTML = ""; }
+  }
+
+  async function create() {
+    const r = await OSE.prompt("新建桶", "桶名称 (3-63 位小写字母/数字/连字符)", {
+      hint: "符合 AWS S3 命名规范, 不能与已有桶重名" });
+    if (!r || !r.v1) return;
+    const { data } = await OSE.post("/api/buckets", { name: r.v1 });
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) load();
+  }
+
+  async function remove(name) {
+    if (!(await OSE.confirm("删除桶", `确定删除桶 ${name}? (非空桶普通删除会失败)`))) return;
+    const forceDel = await OSE.confirm("是否强制删除?", "确定 = 先清空桶内全部对象再删除\n取消 = 普通删除");
+    const { data } = await OSE.del(`/api/buckets/${encodeURIComponent(name)}?force=${forceDel}`);
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) load();
+  }
+
+  async function stats(name) {
+    const box = document.getElementById("bucket-table");
+    box.innerHTML = '<div class="loading-tip">正在统计 (递归扫描全部对象, 大桶较慢)…</div>';
+    try {
+      const { data } = await OSE.get(`/api/buckets/${encodeURIComponent(name)}/stats`);
+      const s = data.data || {};
+      const rows = [["桶名", s.bucket_name], ["对象数", s.object_count], ["文件夹数", s.folder_count],
+                    ["总大小", s.total_size_str], ["错误", s.error || "—"]];
+      box.innerHTML = `<table class="grid"><tbody>` + rows.map(([k, v]) =>
+        `<tr><th style="width:160px">${k}</th><td>${OSE.escapeHtml(v == null ? "-" : String(v))}</td></tr>`).join("") +
+        `</tbody></table><div style="margin-top:12px"><button class="btn" onclick="Buckets.load()"><svg class="ic"><use href="#i-logs"/></svg>返回列表</button></div>`;
+    } catch (e) { load(); }
+  }
+
+  /* ==================== CORS 配置 (D6) ==================== */
+
+  const corsCache = [];   // 当前编辑中的规则 [{origin, methods, headers, max_age}]
+
+  async function fillBucketSelects() {
+    try {
+      const { data } = await OSE.get("/api/buckets");
+      if (!data.success) return;
+      const opts = (data.data || []).map((b) =>
+        `<option value="${encodeURIComponent(b)}">${OSE.escapeHtml(b)}</option>`).join("");
+      ["cors-bucket", "mp-bucket"].forEach((id) => {
+        const sel = document.getElementById(id);
+        if (sel) sel.innerHTML = '<option value="">— 选择桶 —</option>' + opts;
+      });
+    } catch (e) { /* 静默: 选择器留空, 用户可手动重试 */ }
+  }
+
+  function renderCors() {
+    const box = document.getElementById("cors-rules");
+    if (!corsCache.length) {
+      box.innerHTML = '<div class="note-line">未读取到配置。读取后显示已有规则; 保存时按下方表单整体覆盖。</div>';
+      return;
+    }
+    box.innerHTML = corsCache.map((r, i) => `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:8px">
+        <div class="field" style="margin:0;min-width:200px"><label>来源 Origin</label><input type="text" data-i="${i}" data-f="origin" value="${OSE.escapeHtml(r.origin || "*")}"></div>
+        <div class="field" style="margin:0;min-width:160px"><label>方法 (逗号分隔)</label><input type="text" data-i="${i}" data-f="methods" value="${OSE.escapeHtml((r.methods || []).join(","))}"></div>
+        <div class="field" style="margin:0;min-width:160px"><label>请求头 (逗号分隔)</label><input type="text" data-i="${i}" data-f="headers" value="${OSE.escapeHtml((r.headers || []).join(","))}"></div>
+        <div class="field" style="margin:0;width:110px"><label>缓存秒数</label><input type="number" data-i="${i}" data-f="max_age" value="${OSE.escapeHtml(r.max_age == null ? "" : String(r.max_age))}"></div>
+        <button class="btn sm ghost-danger" data-rm="${i}">移除</button>
+      </div>`).join("");
+    box.querySelectorAll("input[data-i]").forEach((inp) =>
+      inp.addEventListener("change", () => {
+        const i = +inp.dataset.i, f = inp.dataset.f;
+        let v = inp.value;
+        if (f === "methods" || f === "headers") {
+          v = v.split(",").map((s) => s.trim()).filter(Boolean);
+        } else if (f === "max_age") {
+          v = v === "" ? null : parseInt(v, 10);
+        }
+        corsCache[i][f] = v;
+      }));
+    box.querySelectorAll("[data-rm]").forEach((btn) =>
+      btn.addEventListener("click", () => { corsCache.splice(+btn.dataset.rm, 1); renderCors(); }));
+  }
+
+  async function loadCors() {
+    const sel = document.getElementById("cors-bucket");
+    const bucket = decodeURIComponent(sel.value || "");
+    if (!bucket) { OSE.toast("请先选择桶", "warn"); return; }
+    const { data } = await OSE.get(`/api/buckets/${encodeURIComponent(bucket)}/cors`);
+    if (!data.success) { OSE.toast(data.message, "error"); return; }
+    corsCache.length = 0;
+    (data.data || []).forEach((r) => corsCache.push(r));
+    renderCors();
+    OSE.toast(`已读取 ${corsCache.length} 条规则`, "success");
+  }
+
+  async function saveCors() {
+    const sel = document.getElementById("cors-bucket");
+    const bucket = decodeURIComponent(sel.value || "");
+    if (!bucket) { OSE.toast("请先选择桶", "warn"); return; }
+    const rules = corsCache.filter((r) => (r.origin || "").trim());
+    if (!rules.length) {
+      // 空列表 = 删除语义: 明确问一次, 避免用户误以为保存了空配置
+      if (!(await OSE.confirm("保存空配置?", "规则列表为空, 保存将删除该桶的 CORS 配置。\n确定 = 删除, 取消 = 返回编辑"))) return;
+    }
+    const { data } = await OSE.put(`/api/buckets/${encodeURIComponent(bucket)}/cors`, rules);
+    OSE.toast(data.message, data.success ? "success" : "error");
+  }
+
+  async function deleteCors() {
+    const sel = document.getElementById("cors-bucket");
+    const bucket = decodeURIComponent(sel.value || "");
+    if (!bucket) { OSE.toast("请先选择桶", "warn"); return; }
+    if (!(await OSE.confirm("删除 CORS 配置", `确定删除桶 ${bucket} 的 CORS 配置?`))) return;
+    const { data } = await OSE.del(`/api/buckets/${encodeURIComponent(bucket)}/cors`);
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) { corsCache.length = 0; renderCors(); }
+  }
+
+  /* ==================== 分片清理 (D7) ==================== */
+
+  async function loadMultipart() {
+    const sel = document.getElementById("mp-bucket");
+    const bucket = decodeURIComponent(sel.value || "");
+    const box = document.getElementById("mp-list");
+    if (!bucket) { box.innerHTML = '<div class="loading-tip">选择桶后查看未完成上传</div>'; return; }
+    box.innerHTML = '<div class="loading-tip">正在列举未完成上传…</div>';
+    const { data } = await OSE.get(`/api/buckets/${encodeURIComponent(bucket)}/multipart`);
+    if (!data.success) {
+      box.innerHTML = `<div class="empty-state"><div class="big">${OSE.icon("warn")}</div>${OSE.escapeHtml(data.message)}</div>`;
+      return;
+    }
+    const ups = data.data || [];
+    if (!ups.length) {
+      box.innerHTML = `<div class="empty-state"><div class="big">${OSE.icon("check")}</div>没有未完成的分段上传</div>`;
+      return;
+    }
+    box.innerHTML = `<table class="grid"><thead><tr>
+      <th>对象 Key</th><th>Upload ID</th><th>开始时间</th><th>操作</th></tr></thead><tbody>` +
+      ups.map((u) => `<tr>
+        <td class="mono">${OSE.escapeHtml(u.key)}</td>
+        <td class="mono" style="max-width:220px">${OSE.escapeHtml(u.upload_id)}</td>
+        <td>${OSE.escapeHtml(u.initiated || "-")}</td>
+        <td><button class="btn sm ghost-danger" data-mpabort="${encodeURIComponent(JSON.stringify({k: u.key, id: u.upload_id}))}">中止</button></td>
+      </tr>`).join("") + "</tbody></table>";
+    box.querySelectorAll("[data-mpabort]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const { k, id } = JSON.parse(decodeURIComponent(btn.dataset.mpabort));
+        if (!(await OSE.confirm("中止上传", `确定中止 ${k} 的未完成上传? 中止后不可恢复。`))) return;
+        const b = decodeURIComponent(document.getElementById("mp-bucket").value || "");
+        const { data } = await OSE.del(`/api/buckets/${encodeURIComponent(b)}/multipart`, { key: k, upload_id: id });
+        OSE.toast(data.message, data.success ? "success" : "error");
+        if (data.success) loadMultipart();
+      }));
+  }
+
+  window.Buckets = { load, create, remove, stats, loadCors, saveCors, deleteCors, loadMultipart, renderCors };
+  OSE.onConnectionChanged = () => { load(); fillBucketSelects(); };
+  load();
+  if (canWrite) { fillBucketSelects(); renderCors(); }
+})();
+</script>
+{% endblock %}

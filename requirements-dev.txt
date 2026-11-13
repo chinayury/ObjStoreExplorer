@@ -1,0 +1,8 @@
+# 开发/CI 测试依赖 (在 Web 版依赖之上追加)
+# 注意: 上界与 requirements.txt 保持同样纪律, 避免 CI 静默引入不兼容大版本。
+-r requirements-web.txt
+
+# 测试框架
+pytest>=8.0,<9.0
+# FastAPI TestClient 依赖
+httpx>=0.27,<1.0

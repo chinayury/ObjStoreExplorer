@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "objstoreexplorer"
+dynamic = ["version"]
+description = "MinIO/S3 兼容对象存储管理工具 (Tkinter 桌面版 + FastAPI Web 容器版)"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "AGPL-3.0-or-later" }
+authors = [{ name = "尤立江", email = "41469858@qq.com" }]
+keywords = ["minio", "s3", "object-storage", "storage-manager", "tkinter", "fastapi"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Operating System :: OS Independent",
+    "Topic :: System :: Systems Administration",
+]
+
+[project.urls]
+Documentation = "docs/README.md"
+
+# 桌面版控制台入口: 安装后可直接 `objstoreexplorer` 启动
+[project.scripts]
+objstoreexplorer = "objstoreexplorer.__main__:main"
+
+# 依赖由 requirements.txt / requirements-web.txt 管理 (含 CVE 上界注释),
+# 此处不重复声明, 避免与 requirements 漂移。安装时先 `pip install -r requirements.txt`。
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+objstoreexplorer = [
+    "resources/icons/*",
+    "webapp/static/*",
+    "webapp/static/css/*",
+    "webapp/static/js/*",
+    "webapp/templates/*",
+    "config/feedback.yaml.example",
+]
+
+# 版本号单一真源: config/settings.py 的 APP_VERSION (经 objstoreexplorer.__version__ 转发)
+[tool.setuptools.dynamic]
+version = { attr = "objstoreexplorer.__version__" }

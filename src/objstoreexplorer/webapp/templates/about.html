@@ -1,0 +1,44 @@
+{#
+Project: ObjStoreExplorer 对象存储管理工具
+Copyright (c) 2026 智维工作室 All Rights Reserved.
+著作权由智维工作室对应的自然人主体持有。
+本源码受著作权法保护，仅获得许可方可使用。
+禁止未经许可分发、转售、开源。
+#}
+
+{% extends "base.html" %}
+{% block title %}关于 - ObjStoreExplorer Web{% endblock %}
+{% block page_id %}about{% endblock %}
+{% block nav_active %}active{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="head-txt"><span class="kicker">系统运维 · ABOUT</span><h1>关于</h1><span class="page-desc">版本信息、依赖清单、一键自检与反馈入口</span></div>
+</div>
+<div class="card">
+  <h2>系统信息</h2>
+  <dl class="kv">
+    <dt>桌面版版本</dt><dd>{{ app_version }}</dd>
+    <dt>Web 版版本</dt><dd>{{ web_version }}</dd>
+    <dt>界面体系</dt><dd>暮橙 Emberline 设计系统 · FastAPI + Jinja2 + 原生 JS, 复用桌面版 core/config 业务层</dd>
+    <dt>部署</dt><dd>Docker 容器, uvicorn (WEB_WORKERS 可配)</dd>
+    <dt>作者</dt><dd>尤立江 &lt;41469858@qq.com&gt;</dd>
+  </dl>
+</div>
+<div class="card">
+  <h2>能力一览 <span class="sub-note">双形态功能对齐情况</span></h2>
+  <p class="note-line" style="line-height:2.1">
+    存储桶空间 (创建 / 删除 / 统计) · 对象资源管理 (上传含文件夹结构 / 下载 / 在线预览 / 重命名 /
+    复制剪切粘贴 / 递归搜索 / 批量删除 / 预签名分享) · MinIO 用户管理 ·
+    访问策略管理 (readonly / readwrite / full 模板与附加分离) ·
+    数据版本控制 · 生命周期规则 · 审计日志 · 系统与 Web 访问账号管理
+  </p>
+</div>
+<div class="card">
+  <h2>技术栈与致谢 <span class="sub-note">核心依赖与开源致敬</span></h2>
+  <p class="note-line" style="line-height:2.1">
+    S3 客户端: <a class="plain" href="https://github.com/minio/minio-py" target="_blank" rel="noopener">minio/minio-py</a> (Apache 2.0) ·
+    Web 框架: FastAPI + Uvicorn · 模板: Jinja2 · 密码哈希: bcrypt · 加密: cryptography (Fernet)
+  </p>
+</div>
+{% endblock %}

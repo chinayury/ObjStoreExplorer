@@ -1,0 +1,97 @@
+{#
+Project: ObjStoreExplorer 对象存储管理工具
+Copyright (c) 2026 智维工作室 All Rights Reserved.
+著作权由智维工作室对应的自然人主体持有。
+本源码受著作权法保护，仅获得许可方可使用。
+禁止未经许可分发、转售、开源。
+#}
+
+{% extends "base.html" %}
+{% block title %}对象资源管理 - ObjStoreExplorer Web{% endblock %}
+{% block page_id %}objects{% endblock %}
+{% block nav_active %}active{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="head-txt"><span class="kicker">数据资产 · OBJECTS</span><h1>对象资源管理</h1><span class="page-desc">上传 / 下载 / 在线预览 / 重命名 / 复制粘贴 / 批量删除与递归搜索</span></div>
+  <div class="spacer"></div>
+</div>
+
+<div class="card dropzone" id="obj-dropzone">
+  <div class="toolbar">
+    <select id="obj-bucket" onchange="Objects.onBucketChange()"><option value="">— 选择桶 —</option></select>
+    <div class="crumbs" id="obj-crumbs"></div>
+    <div class="spacer" style="flex:1"></div>
+    <input type="text" id="obj-search" placeholder="递归搜索对象名 (Enter 触发)">
+    <button class="btn" id="btn-clear-search" style="display:none" onclick="Objects.clearSearch()"><svg class="ic"><use href="#i-x"/></svg>取消搜索</button>
+  </div>
+
+  <div class="toolbar">
+    {% if user.role == 'admin' %}
+    <button class="btn primary" onclick="Objects.pickUpload()"><svg class="ic"><use href="#i-upload"/></svg>上传文件</button>
+    <input type="file" id="obj-file-input" multiple style="display:none">
+    <button class="btn" onclick="Objects.pickFolder()"><svg class="ic"><use href="#i-folder"/></svg>上传文件夹</button>
+    <input type="file" id="obj-folder-input" multiple webkitdirectory style="display:none">
+    <button class="btn" onclick="Objects.newFolder()"><svg class="ic"><use href="#i-plus"/></svg>新建文件夹</button>
+    <div class="sep"></div>
+    <button class="btn" onclick="Objects.clip('copy')"><svg class="ic"><use href="#i-copy"/></svg>复制</button>
+    <button class="btn" onclick="Objects.clip('cut')"><svg class="ic"><use href="#i-cut"/></svg>剪切</button>
+    <button class="btn" onclick="Objects.clipPaste()"><svg class="ic"><use href="#i-paste"/></svg>粘贴 <span class="tag info" id="clip-count" style="display:none">0</span></button>
+    <div class="sep"></div>
+    <button class="btn" onclick="Objects.downloadSelected()"><svg class="ic"><use href="#i-download"/></svg>下载选中</button>
+    <button class="btn ghost-danger" onclick="Objects.deleteSelected()"><svg class="ic"><use href="#i-trash"/></svg>删除选中</button>
+    {% else %}
+    <span class="tag off">只读账号: 可浏览 / 搜索 / 预览 / 下载 / 分享</span>
+    {% endif %}
+  </div>
+  {% if user.role == 'admin' %}
+  <div class="hint" style="margin-bottom:10px">提示: 可将文件或文件夹直接拖入此区域上传 (保留目录层级); 表头点击排序, 支持 Ctrl/Shift 多选、Ctrl+A 全选、Delete 删除、F2 重命名</div>
+  {% endif %}
+
+  <div id="obj-table"><div class="empty-state"><div class="big"><svg class="ic"><use href="#i-unplug"/></svg></div>请先连接 S3 服务并选择桶</div></div>
+</div>
+
+<!-- 在线预览: 图片按原类型展示, 文本类一律纯文本渲染 (服务端已做类型白名单 + nosniff) -->
+<div class="modal-mask" id="preview-modal">
+  <div class="modal wide">
+    <div class="modal-head"><span id="preview-title">预览</span><button class="x" onclick="OSE.closeModal('preview-modal')"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div class="modal-body" id="preview-body"><div class="loading-tip">加载中…</div></div>
+    <div class="modal-foot"><button class="btn" onclick="OSE.closeModal('preview-modal')">关闭</button></div>
+  </div>
+</div>
+
+<!-- 分享对话框: 生成对象预签名下载链接 -->
+<div class="modal-mask" id="share-modal">
+  <div class="modal" style="width:540px">
+    <div class="modal-head">生成分享链接 (预签名 URL)<button class="x" onclick="OSE.closeModal('share-modal')"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div class="modal-body">
+      <div class="field">
+        <label>对象</label>
+        <input type="text" id="share-key" readonly>
+      </div>
+      <div class="field" id="share-expire-field">
+        <label>有效期</label>
+        <select id="share-expires">
+          <option value="3600">1 小时</option>
+          <option value="86400">24 小时</option>
+          <option value="604800">7 天</option>
+        </select>
+        <div class="hint">链接带签名, 到期自动失效; 签发后无法单独吊销, 泄露请轮换 Access Key</div>
+      </div>
+      <div class="field" id="share-result-wrap" style="display:none">
+        <label>分享链接</label>
+        <textarea id="share-url" rows="4" readonly></textarea>
+        <div class="hint" id="share-result-hint"></div>
+      </div>
+      <div class="hint" id="share-error" style="color:var(--danger);font-size:13px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="OSE.closeModal('share-modal')">关闭</button>
+      <button class="btn" id="share-copy" style="display:none" onclick="Objects.copyShareUrl()"><svg class="ic"><use href="#i-copy"/></svg>复制链接</button>
+      <button class="btn primary" id="share-submit" onclick="Objects.doShare()">生成链接</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_js %}<script src="/static/js/page_objects.js"></script>{% endblock %}

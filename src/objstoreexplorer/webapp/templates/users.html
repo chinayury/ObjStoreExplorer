@@ -1,0 +1,203 @@
+{#
+Project: ObjStoreExplorer 对象存储管理工具
+Copyright (c) 2026 智维工作室 All Rights Reserved.
+著作权由智维工作室对应的自然人主体持有。
+本源码受著作权法保护，仅获得许可方可使用。
+禁止未经许可分发、转售、开源。
+#}
+
+{% extends "base.html" %}
+{% block title %}MinIO 用户管理 - ObjStoreExplorer Web{% endblock %}
+{% block page_id %}users{% endblock %}
+{% block nav_active %}active{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="head-txt"><span class="kicker">访问控制 · ACCOUNTS</span><h1>MinIO 用户</h1><span class="page-desc">创建 / 启停用 / 重置 Secret Key / 查看所属策略，一键创建整套授权</span></div>
+  <span class="tag off">需要 Admin API 权限</span>
+  <div class="spacer"></div>
+  {% if user.role == 'admin' %}
+  <button class="btn primary" onclick="MinioUsers.create()"><svg class="ic"><use href="#i-plus"/></svg>创建用户</button>
+  <button class="btn" onclick="MinioUsers.fullSetup()"><svg class="ic"><use href="#i-check"/></svg>一键创建 (桶+用户+策略)</button>
+  {% endif %}
+  <button class="btn" onclick="MinioUsers.load()"><svg class="ic"><use href="#i-refresh"/></svg>刷新列表</button>
+</div>
+<div class="card"><div id="user-table"><div class="loading-tip">加载中…</div></div></div>
+
+<!-- 创建用户 -->
+<div class="modal-mask" id="mu-create">
+  <div class="modal">
+    <div class="modal-head">新建 MinIO 用户<button class="x" onclick="OSE.closeModal('mu-create')"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div class="modal-body">
+      <div class="field"><label>Access Key (用户名)</label><input type="text" id="mu-ak"></div>
+      <div class="field">
+        <label>Secret Key (留空自动生成 16 位强密码)</label>
+        <input type="text" id="mu-sk" autocomplete="off">
+      </div>
+      <div class="hint">创建成功后请立即保存 SK (MinIO 无法再次查询)</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="OSE.closeModal('mu-create')">取消</button>
+      <button class="btn primary" onclick="MinioUsers.submitCreate()">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- 附加策略 -->
+<div class="modal-mask" id="mu-attach">
+  <div class="modal">
+    <div class="modal-head">附加访问策略<button class="x" onclick="OSE.closeModal('mu-attach')"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div class="modal-body">
+      <div class="field"><label>用户</label><input type="text" id="mu-attach-ak" readonly></div>
+      <div class="field"><label>策略</label><select id="mu-attach-policy"></select></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="OSE.closeModal('mu-attach')">取消</button>
+      <button class="btn primary" onclick="MinioUsers.submitAttach()">附加</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script>
+(function () {
+  "use strict";
+  const canWrite = OSE.isAdmin;
+
+  async function load() {
+    const box = document.getElementById("user-table");
+    box.innerHTML = '<div class="loading-tip">加载中…</div>';
+    if (!OSE.state.connected) {
+      box.innerHTML = `<div class="empty-state"><div class="big">${OSE.icon("unplug")}</div>请先连接 S3 服务</div>`;
+      return;
+    }
+    try {
+      const { data } = await OSE.get("/api/admin/users");
+      if (!data.success) { box.innerHTML = `<div class="empty-state">${OSE.escapeHtml(data.message)}</div>`; return; }
+      const users = data.data || [];
+      if (!users.length) { box.innerHTML = '<div class="empty-state">没有用户</div>'; return; }
+      box.innerHTML = `<table class="grid"><thead><tr>
+        <th>Access Key</th><th>状态</th><th>策略</th><th style="width:440px">操作</th></tr></thead><tbody>` +
+        users.map((u) => {
+          /* v0.1.0 XSS 加固: AK 来自 MinIO (可含引号), 不能拼进内联 onclick 的
+             JS 字符串; 改为 data-ak 属性 + 事件委托 (encodeURIComponent 进属性,
+             读取时解码, 全程不经 HTML/JS 解析器) */
+          const akAttr = encodeURIComponent(u.access_key || "");
+          const ak = OSE.escapeHtml(u.access_key);
+          const enabled = (u.status || "").toLowerCase() === "enabled";
+          return `<tr><td class="mono"><b>${ak}</b></td>
+            <td><span class="tag ${enabled ? "ok" : "off"}">${enabled ? "启用" : "禁用"}</span></td>
+            <td class="mono">${OSE.escapeHtml(u.policy || "-")}</td>
+            <td>${canWrite ? `
+              <button class="btn sm" data-act="attach" data-ak="${akAttr}">附加策略</button>
+              <button class="btn sm" data-act="resetSecret" data-ak="${akAttr}">重置SK</button>
+              ${enabled
+                ? `<button class="btn sm" data-act="toggle-disable" data-ak="${akAttr}">禁用</button>`
+                : `<button class="btn sm" data-act="toggle-enable" data-ak="${akAttr}">启用</button>`}
+              <button class="btn sm ghost-danger" data-act="remove" data-ak="${akAttr}">删除</button>` : "-"}</td></tr>`;
+        }).join("") + "</tbody></table>";
+      /* 事件委托 */
+      box.querySelectorAll("button[data-act]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const ak = decodeURIComponent(btn.dataset.ak || "");
+          const act = btn.dataset.act;
+          if (act === "attach") attach(ak);
+          else if (act === "resetSecret") resetSecret(ak);
+          else if (act === "toggle-disable") toggle(ak, "disable");
+          else if (act === "toggle-enable") toggle(ak, "enable");
+          else if (act === "remove") remove(ak);
+        });
+      });
+    } catch (e) { box.innerHTML = ""; }
+  }
+
+  function create() { OSE.openModal("mu-create"); }
+
+  async function submitCreate() {
+    const ak = document.getElementById("mu-ak").value.trim();
+    const sk = document.getElementById("mu-sk").value.trim();
+    if (!ak) { OSE.toast("Access Key 不能为空", "warn"); return; }
+    const { data } = await OSE.post("/api/admin/users", { access_key: ak, secret_key: sk });
+    if (data.success) {
+      OSE.closeModal("mu-create");
+      const gen = data.data.secret_key;
+      await OSE.confirm("用户已创建", `Access Key: ${data.data.access_key}\nSecret Key: ${gen}\n\n请立即保存 (MinIO 无法再次查询 SK)`);
+      load();
+    } else OSE.toast(data.message, "error");
+  }
+
+  async function remove(ak) {
+    if (!(await OSE.confirm("删除用户", `确定删除用户 ${ak}?`))) return;
+    const { data } = await OSE.del(`/api/admin/users/${encodeURIComponent(ak)}`);
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) load();
+  }
+
+  async function toggle(ak, op) {
+    const { data } = await OSE.post(`/api/admin/users/${encodeURIComponent(ak)}/${op}`, {});
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) load();
+  }
+
+  async function resetSecret(ak) {
+    const r = await OSE.prompt("重置 Secret Key", "新 SK (留空自动生成)", {
+      hint: "MinIO 限制: 无法查看旧 SK, 只能重置" });
+    if (!r) return;
+    const { data } = await OSE.post(`/api/admin/users/${encodeURIComponent(ak)}/reset-secret`,
+      { new_secret_key: r.v1 });
+    if (data.success) {
+      await OSE.confirm("已重置", `新 Secret Key: ${data.data.secret_key}\n\n请立即保存`);
+    } else OSE.toast(data.message, "error");
+  }
+
+  async function attach(ak) {
+    document.getElementById("mu-attach-ak").value = ak;
+    const { data } = await OSE.get("/api/admin/policies");
+    const sel = document.getElementById("mu-attach-policy");
+    sel.innerHTML = (data.data || []).map((p) => `<option>${OSE.escapeHtml(p)}</option>`).join("");
+    OSE.openModal("mu-attach");
+  }
+
+  async function submitAttach() {
+    const ak = document.getElementById("mu-attach-ak").value;
+    const policy = document.getElementById("mu-attach-policy").value;
+    const { data } = await OSE.post("/api/admin/policies/attach", { policy, access_key: ak });
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) { OSE.closeModal("mu-attach"); load(); }
+  }
+
+  async function fullSetup() {
+    const r = await OSE.prompt("一键创建 桶 + 用户 + 策略", "新桶名 (可留空 = 授权已有桶)", {
+      extraLabel: "Access Key (用户名)",
+      hint: "策略类型 readonly/readwrite/full 将在下一步选择",
+    });
+    if (!r || !r.v2) { if (r) OSE.toast("Access Key 必填", "warn"); return; }
+    const bucket = r.v1;
+    const authBucket = await OSE.prompt("授权桶", "策略授予哪个桶? (新桶名已填可留空)", { value: bucket });
+    if (!authBucket) return;
+    if (!bucket && !authBucket.v1) { OSE.toast("新桶名与授权桶至少填一个", "warn"); return; }
+    const pt = await OSE.prompt("策略类型", "readonly / readwrite / full", { value: "readwrite" });
+    if (!pt) return;
+    const { data } = await OSE.post("/api/admin/create-full-setup", {
+      bucket_name: bucket, access_key: r.v2, policy_type: pt.v1 || "readwrite",
+      auth_bucket: authBucket.v1,
+    });
+    const res = data.data || {};
+    if (data.success) {
+      const steps = (res.steps || []).map((s) => `${s.ok ? "√" : "×"} ${s.step}`).join("\n");
+      await OSE.confirm("一键创建完成", `Secret Key: ${res.secret_key}\n策略: ${res.policy_name}\n\n${steps}\n\n请立即保存 SK`);
+      load();
+    } else {
+      const steps = (res.steps || []).map((s) => `${s.ok ? "√" : "×"} ${s.step}`).join("\n");
+      OSE.toast(res.error || data.message || "失败", "error");
+      if (steps) await OSE.confirm("执行详情", `${steps}\n\n错误: ${res.error || ""}`);
+    }
+  }
+
+  window.MinioUsers = { load, create, submitCreate, remove, toggle, resetSecret, attach, submitAttach, fullSetup };
+  OSE.onConnectionChanged = load;
+  load();
+})();
+</script>
+{% endblock %}

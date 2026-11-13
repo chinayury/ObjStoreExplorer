@@ -1,0 +1,212 @@
+{#
+Project: ObjStoreExplorer 对象存储管理工具
+Copyright (c) 2026 智维工作室 All Rights Reserved.
+著作权由智维工作室对应的自然人主体持有。
+本源码受著作权法保护，仅获得许可方可使用。
+禁止未经许可分发、转售、开源。
+#}
+
+{% extends "base.html" %}
+{% block title %}访问策略管理 - ObjStoreExplorer Web{% endblock %}
+{% block page_id %}policies{% endblock %}
+{% block nav_active %}active{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="head-txt"><span class="kicker">访问控制 · POLICIES</span><h1>访问策略</h1><span class="page-desc">策略 JSON 增删改查，可附加 / 分离到指定用户；改动前自动快照可回滚</span></div>
+  <div class="spacer"></div>
+  {% if user.role == 'admin' %}<button class="btn primary" onclick="Policies.create()"><svg class="ic"><use href="#i-plus"/></svg>创建策略</button>{% endif %}
+  <button class="btn" onclick="Policies.load()"><svg class="ic"><use href="#i-refresh"/></svg>刷新列表</button>
+</div>
+
+<div class="two-col">
+  <div class="card"><div id="policy-list"><div class="loading-tip">加载中…</div></div></div>
+  <div class="card">
+    <h2 id="policy-title">策略内容</h2>
+    <div id="policy-content"><div class="empty-state">选择左侧策略查看 JSON 内容</div></div>
+    <div class="form-actions" id="policy-actions" style="display:none">
+      <input type="text" id="policy-attach-user" placeholder="附加到的用户 Access Key" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px">
+      <button class="btn primary" onclick="Policies.attach()"><svg class="ic"><use href="#i-shield"/></svg>附加到用户</button>
+      <button class="btn" onclick="Policies.detach()"><svg class="ic"><use href="#i-x"/></svg>分离</button>
+      {% if user.role == 'admin' %}<button class="btn primary" onclick="Policies.edit()"><svg class="ic"><use href="#i-edit"/></svg>编辑内容</button>{% endif %}
+      {% if user.role == 'admin' %}<button class="btn ghost-danger" onclick="Policies.remove()"><svg class="ic"><use href="#i-trash"/></svg>删除策略</button>{% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- 编辑策略 -->
+<div class="modal-mask" id="pol-edit">
+  <div class="modal wide">
+    <div class="modal-head">编辑策略: <span id="pol-edit-name"></span><button class="x" onclick="OSE.closeModal('pol-edit')"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div class="modal-body">
+      <div class="field">
+        <label>策略 JSON（保存后立即生效；附加了此策略的用户会短暂摘除后自动还原，其余权限不受影响）</label>
+        <textarea id="pol-edit-content" rows="14" class="mono" style="width:100%;font-family:Consolas,monospace;font-size:12.5px"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="Policies.editFillTemplate()">填充 readonly 模板</button>
+      <button class="btn" onclick="OSE.closeModal('pol-edit')">取消</button>
+      <button class="btn primary" id="pol-edit-submit" onclick="Policies.submitEdit()">保存修改</button>
+    </div>
+  </div>
+</div>
+
+<!-- 创建策略 -->
+<div class="modal-mask" id="pol-create">
+  <div class="modal wide">
+    <div class="modal-head">新建访问策略<button class="x" onclick="OSE.closeModal('pol-create')"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div class="modal-body">
+      <div class="field"><label>策略名称</label><input type="text" id="pol-name"></div>
+      <div class="field">
+        <label>策略 JSON (可参考只读模板)</label>
+        <textarea id="pol-content" rows="12" class="mono" style="width:100%;font-family:Consolas,monospace;font-size:12.5px"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="Policies.fillTemplate()">填充 readonly 模板</button>
+      <button class="btn" onclick="OSE.closeModal('pol-create')">取消</button>
+      <button class="btn primary" onclick="Policies.submitCreate()">创建</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script>
+(function () {
+  "use strict";
+  const canWrite = OSE.isAdmin;
+  let current = "";
+  let currentContent = "";  // 当前查看策略的 JSON 文本 (编辑弹窗预填用)
+
+  const TEMPLATE_READONLY = {
+    Version: "2012-10-17",
+    Statement: [{
+      Effect: "Allow",
+      Action: ["s3:GetBucketLocation", "s3:GetObject", "s3:ListBucket"],
+      Resource: ["arn:aws:s3:::BUCKET-NAME", "arn:aws:s3:::BUCKET-NAME/*"],
+    }],
+  };
+
+  async function load() {
+    const box = document.getElementById("policy-list");
+    box.innerHTML = '<div class="loading-tip">加载中…</div>';
+    if (!OSE.state.connected) {
+      box.innerHTML = `<div class="empty-state"><div class="big">${OSE.icon("unplug")}</div>请先连接 S3 服务</div>`;
+      return;
+    }
+    try {
+      const { data } = await OSE.get("/api/admin/policies");
+      if (!data.success) { box.innerHTML = `<div class="empty-state">${OSE.escapeHtml(data.message)}</div>`; return; }
+      const policies = data.data || [];
+      if (!policies.length) { box.innerHTML = '<div class="empty-state">没有策略</div>'; return; }
+      box.innerHTML = `<table class="grid"><tbody>` + policies.map((p) =>
+        /* v0.1.0 XSS 加固: 策略名不拼内联 onclick, 改 data-p 属性 + 事件委托 */
+        `<tr style="cursor:pointer" data-p="${OSE.escapeHtml(p)}" class="policy-row">
+          <td><span class="cell-name">${OSE.icon("shield", "obj-ic dir")} <span class="name-txt"><b>${OSE.escapeHtml(p)}</b></span></span></td></tr>`).join("") + "</tbody></table>";
+      box.querySelectorAll("tr.policy-row").forEach((tr) =>
+        tr.addEventListener("click", () => view(tr.dataset.p || "")));
+    } catch (e) { box.innerHTML = ""; }
+  }
+
+  async function view(name) {
+    current = name;
+    document.querySelectorAll("#policy-list tr").forEach((tr) =>
+      tr.classList.toggle("selected", tr.dataset.p === name));
+    document.getElementById("policy-title").textContent = "策略内容: " + name;
+    document.getElementById("policy-content").innerHTML = '<div class="loading-tip">加载中…</div>';
+    document.getElementById("policy-actions").style.display = "";
+    try {
+      const { data } = await OSE.get(`/api/admin/policies/${encodeURIComponent(name)}`);
+      if (data.success) {
+        let content = data.data;
+        if (typeof content !== "string") content = JSON.stringify(content, null, 2);
+        currentContent = content;
+        document.getElementById("policy-content").innerHTML = `<pre class="json">${OSE.escapeHtml(content)}</pre>`;
+      } else {
+        currentContent = "";
+        document.getElementById("policy-content").innerHTML = `<div class="empty-state">${OSE.escapeHtml(data.message)}</div>`;
+      }
+    } catch (e) { currentContent = ""; document.getElementById("policy-content").innerHTML = ""; }
+  }
+
+  function edit() {
+    if (!current) { OSE.toast("请先在左侧选择要编辑的策略", "warn"); return; }
+    if (!currentContent) { OSE.toast("策略内容未加载成功，无法编辑", "error"); return; }
+    document.getElementById("pol-edit-name").textContent = current;
+    document.getElementById("pol-edit-content").value = currentContent;
+    OSE.openModal("pol-edit");
+  }
+
+  function editFillTemplate() {
+    document.getElementById("pol-edit-content").value = JSON.stringify(TEMPLATE_READONLY, null, 2);
+  }
+
+  async function submitEdit() {
+    let content;
+    try { content = JSON.parse(document.getElementById("pol-edit-content").value); }
+    catch (e) { OSE.toast("策略 JSON 格式错误: " + e.message, "error"); return; }
+    if (!content || typeof content !== "object" || Array.isArray(content)) {
+      OSE.toast("策略内容必须是一个 JSON 对象", "error"); return;
+    }
+    if (!(await OSE.confirm("保存策略修改", `确定覆盖策略 ${current} 的内容？\n附加了该策略的用户权限将立即变化。`))) return;
+    const btn = document.getElementById("pol-edit-submit");
+    btn.disabled = true; btn.textContent = "保存中…";
+    try {
+      const { data } = await OSE.put(`/api/admin/policies/${encodeURIComponent(current)}`, { content });
+      OSE.toast(data.message, data.success ? "success" : "error");
+      if (data.success) { OSE.closeModal("pol-edit"); view(current); }
+    } finally {
+      btn.disabled = false; btn.textContent = "保存修改";
+    }
+  }
+
+  function create() {
+    document.getElementById("pol-name").value = "";
+    document.getElementById("pol-content").value = JSON.stringify(TEMPLATE_READONLY, null, 2);
+    OSE.openModal("pol-create");
+  }
+
+  function fillTemplate() {
+    document.getElementById("pol-content").value = JSON.stringify(TEMPLATE_READONLY, null, 2);
+  }
+
+  async function submitCreate() {
+    const name = document.getElementById("pol-name").value.trim();
+    let content;
+    try { content = JSON.parse(document.getElementById("pol-content").value); }
+    catch (e) { OSE.toast("策略 JSON 格式错误: " + e.message, "error"); return; }
+    const { data } = await OSE.post("/api/admin/policies", { name, content });
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) { OSE.closeModal("pol-create"); load(); }
+  }
+
+  async function remove() {
+    if (!current) return;
+    if (!(await OSE.confirm("删除策略", `确定删除策略 ${current}?`))) return;
+    const { data } = await OSE.del(`/api/admin/policies/${encodeURIComponent(current)}`);
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) { current = ""; load(); document.getElementById("policy-content").innerHTML = '<div class="empty-state">选择左侧策略查看 JSON 内容</div>'; document.getElementById("policy-actions").style.display = "none"; }
+  }
+
+  async function attach() {
+    const ak = document.getElementById("policy-attach-user").value.trim();
+    if (!ak) { OSE.toast("请填用户 Access Key", "warn"); return; }
+    const { data } = await OSE.post("/api/admin/policies/attach", { policy: current, access_key: ak });
+    OSE.toast(data.message, data.success ? "success" : "error");
+  }
+
+  async function detach() {
+    const ak = document.getElementById("policy-attach-user").value.trim();
+    if (!ak) { OSE.toast("请填用户 Access Key", "warn"); return; }
+    const { data } = await OSE.post("/api/admin/policies/detach", { policy: current, access_key: ak });
+    OSE.toast(data.message, data.success ? "success" : "error");
+  }
+
+  window.Policies = { load, view, create, submitCreate, remove, attach, detach, fillTemplate, edit, editFillTemplate, submitEdit };
+  OSE.onConnectionChanged = load;
+  load();
+})();
+</script>
+{% endblock %}

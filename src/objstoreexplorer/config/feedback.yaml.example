@@ -1,0 +1,62 @@
+# MultiFeedbackSystem 接入配置 —— 模板
+#
+# ⚠ 本文件是**模板**, 全部为占位符, 可以安全地提交进仓库。
+#   真实配置文件是 config/feedback.yaml, 它已被 .gitignore 排除。
+#
+# 使用方法:
+#   1. 复制本文件:  cp config/feedback.yaml.example config/feedback.yaml
+#   2. 填写 app_key 与 api_base (见下方说明)
+#   3. 重启 ObjStoreExplorer
+#
+# 也可以不填 yaml —— 程序启动后点「反馈」→「设置」, 在界面上填同样会被保存。
+# yaml 的存在只是为了给运维一个可版本化管理的入口。
+#
+# 平台: 多租户反馈中转服务 (PHP 后端)
+# 接入手册: docs/08-集成手册/MultiFeedbackSystem-接入手册.html
+
+# ==================== 必填 ====================
+
+# 应用密钥, 从 MultiFeedbackSystem 后台「应用管理」注册后获取
+# 格式: app-xxxxxxxxxxxxxxxx
+# 留空或保持 PLACEHOLDER 时, 程序自动走【离线模式】
+# (把反馈打成 zip 存到本地, 由管理员手动导入后台)
+app_key: "PLACEHOLDER_APP_KEY"
+
+# API 域名, 不带末尾斜杠。例: https://feedback.example.com
+# 必须是 https —— app_key 和反馈正文会随请求体传输, http 会被链路上任何一跳拿到。
+# 内网自建服务确需 http 时, 把下面的 allow_insecure_http 设为 true。
+api_base: "https://your-domain"
+
+# ==================== 可选 ====================
+
+# 允许 http 明文接入 (默认 false, 即强制 https)。
+# 仅在"内网隔离环境 + 确实没有 TLS"时才开, 程序启动时会给用户明确警告。
+allow_insecure_http: false
+
+# HTTP 请求超时 (秒)
+timeout: 10
+
+# 单次提交最大截图数 (平台上限 9)
+max_images: 9
+
+# 单张截图最大字节数 (5MB = 平台上限)
+max_image_bytes: 5242880
+
+# 反馈包最大字节数 (50MB = 平台上限)
+bundle_max_bytes: 52428800
+
+# 离线反馈包保存目录 (相对 APP_DIR/data)
+offline_dir: "feedback_bundles"
+
+# 自检 - Windows Event Log 查询最近多少小时
+eventlog_hours: 1
+
+# 自检 - 应用日志尾部行数
+app_log_tail: 200
+
+# 自检 - 网络探测目标
+ping_target: "https://www.baidu.com"
+
+# 自检 - 要检查的服务名
+service_names:
+  - "minio"

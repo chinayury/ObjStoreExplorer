@@ -1,0 +1,66 @@
+{#
+Project: ObjStoreExplorer 对象存储管理工具
+Copyright (c) 2026 智维工作室 All Rights Reserved.
+著作权由智维工作室对应的自然人主体持有。
+本源码受著作权法保护，仅获得许可方可使用。
+禁止未经许可分发、转售、开源。
+#}
+
+{% extends "base.html" %}
+{% block title %}审计日志 - ObjStoreExplorer Web{% endblock %}
+{% block page_id %}logs{% endblock %}
+{% block nav_active %}active{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="head-txt"><span class="kicker">系统运维 · AUDIT</span><h1>审计日志</h1><span class="page-desc">全部用户的操作记录，支持按级别筛选与导出</span></div>
+  <div class="spacer"></div>
+  <select id="log-level" onchange="Logs.load()">
+    <option value="">全部级别</option><option>INFO</option><option>WARNING</option><option>ERROR</option>
+  </select>
+  {% if user.role == 'admin' %}<button class="btn ghost-danger" onclick="Logs.clear()"><svg class="ic"><use href="#i-trash"/></svg>清空日志</button>{% endif %}
+  <button class="btn" onclick="Logs.load()"><svg class="ic"><use href="#i-refresh"/></svg>刷新日志</button>
+</div>
+<div class="card"><div id="log-table"><div class="loading-tip">加载中…</div></div></div>
+{% endblock %}
+
+{% block page_js %}
+<script>
+(function () {
+  "use strict";
+
+  async function load() {
+    const box = document.getElementById("log-table");
+    box.innerHTML = '<div class="loading-tip">加载中…</div>';
+    const level = document.getElementById("log-level").value;
+    try {
+      const { data } = await OSE.get(`/api/logs?limit=300${level ? "&level=" + level : ""}`);
+      const logs = data.data || [];
+      if (!logs.length) { box.innerHTML = '<div class="empty-state">暂无日志</div>'; return; }
+      const tagMap = { INFO: "info", WARNING: "warn", ERROR: "err" };
+      box.innerHTML = `<table class="grid"><thead><tr>
+        <th style="width:170px">时间</th><th style="width:90px">级别</th><th style="width:130px">操作</th>
+        <th>目标</th><th style="width:90px">状态</th><th>消息</th></tr></thead><tbody>` +
+        logs.map((l) => `<tr>
+          <td class="mono">${OSE.escapeHtml(l.timestamp || "")}</td>
+          <td><span class="tag ${tagMap[l.level] || "off"}">${l.level}</span></td>
+          <td>${OSE.escapeHtml(l.operation || "")}</td>
+          <td class="mono">${OSE.escapeHtml(l.target || "")}</td>
+          <td>${OSE.escapeHtml(l.status || "")}</td>
+          <td>${OSE.escapeHtml(l.message || "")}</td></tr>`).join("") + "</tbody></table>";
+    } catch (e) { box.innerHTML = ""; }
+  }
+
+  async function clear() {
+    if (!(await OSE.confirm("清空日志", "确定清空全部操作日志? (桌面版与 Web 共用此日志)"))) return;
+    const { data } = await OSE.del("/api/logs");
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) load();
+  }
+
+  window.Logs = { load, clear };
+  load();
+  setInterval(load, 15000); // 轻量自动刷新
+})();
+</script>
+{% endblock %}

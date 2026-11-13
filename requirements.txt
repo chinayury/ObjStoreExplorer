@@ -1,0 +1,55 @@
+# -*- coding: utf-8 -*-
+# ↑ 这行不是装饰, 不要删。本文件下面全是中文注释。pip-audit 走
+#   pip_requirements_parser 读本文件, 那个库的 auto_decode 只认 BOM 和
+#   PEP263 声明, 两者都没有就回落到系统 locale —— 中文 Windows 上是 cp936,
+#   于是非 ASCII 内容必定 UnicodeDecodeError (CI job#273 实录, 本地构建没事,
+#   是安全门禁作业独有)。pip 自己读这个文件不受影响 (实测)。
+#   删掉这行 = test:deps 作业变红, 而 build 作业照样绿灯, 很容易误判成"网络抖动"。
+# 依赖清单
+#
+# 原则: 每个依赖都写明版本区间, 且**必须有上界**。
+# 桌面版用 PyInstaller 打包成 exe, 依赖在打包那一刻就冻结进产物。
+# 如果只写 `>=` 不写 `<`, 那么将来某个大版本发布后, 任何人重新执行
+# `pip install -r requirements.txt` 都会把新的大版本装进来并打进 exe,
+# 而我们既没有测过、也没打算马上支持 —— 这是"静默引入不兼容"的典型来源。
+
+# 核心依赖
+minio>=7.1.0,<8.0.0
+
+# cryptography 的官方 wheel 内置 OpenSSL, 版本过旧会通过传递链继承 CVE。
+# 已知 ABI 变更: 43.0 移除了一些私有符号, 50.0 之后 _rust 绑定持续演进,
+# 因此上界取当前主版本的下一个小版本。
+# v0.1.0 依赖核查 (GitHub Advisory Database, 2026-10-12): 42.x-49.x 落在
+#   CVE-2026-69247 (44.0.0-50.0.0, PKCS#7 Bleichenbacher oracle, 高危) 与
+#   CVE-2026-69249 (42.0.0-49.0.0, 证书路径构建指数爆炸, 高危) 区间内,
+#   GHSA-537c-gmf6-5ccf (<48.0.1) 为 wheel 内旧 OpenSSL —— 下界提至 50.0.0
+#   一并清除; 本项目仅用 Fernet (接口跨版本稳定), 曾以 50.0.2 实测通过。
+cryptography>=50.0.0,<51.0.0
+
+# ⚠ Pillow 是本项目暴露面最大的依赖 —— 我们会直接解码用户桶里的对象做预览。
+#   pip-audit 实测 (2026-11-10, 12.3.0): 39 条漏洞记录 (CVE-2026-112399/112406/
+#   112892/112393/96638/96640/96778 等), 全部在 13.0.0 修复。
+#   ⚠ 同样的坑踩了第二次: 上界 <13.0.0 恰好把 13.0.0 这个修复版挡在门外
+#   (2026-10 那次是 <12.0.0 挡住 12.x 修复版) —— 上界必须跟着修复版走,
+#   每次 pip-audit 告警都要核对"修复版本号 vs 上界"这一项。
+#   13.0.0 兼容性已实测: Image.LANCZOS 等本项目用到的接口保持不变
+#   (utils/icons.py: Image.open/resize/LANCZOS/Image.new;
+#    utils/screenshot.py: ImageGrab)。
+Pillow>=13.0.0,<14.0.0
+
+# urllib3 是 minio 的传递依赖, 本项目会流式下载 S3 对象, 正好落在其受影响用法上:
+#   PYSEC-2026-4176 流式响应遇 chunked+deflate 尾随字节会进入无限循环 (DoS,
+#     网络读超时都中断不了, 因为不需要再读 socket);
+#   PYSEC-2026-4175 目标站与 HTTPS 代理的 TLS 配置未隔离, 可能把
+#     cert_reqs="CERT_NONE" 传染给代理连接;
+#   PYSEC-2026-4177 分块传输的 chunk-size 字段无长度上限, 可致内存耗尽。
+#   全部在 2.8.0 修复, 因此显式钉住。
+urllib3>=2.8.0,<3.0.0
+
+# 反馈平台配置解析 (utils/feedback_client.py 读 config/feedback.yaml)
+# 6.0.1 起修复了若干解析问题; 本项目只用 yaml.safe_load, 不存在
+# yaml.load 无 Loader 的任意代码执行风险。
+PyYAML>=6.0.1,<7.0.0
+
+# Windows 平台专用 (收紧 explorer.key 的 ACL 权限, 限制截图的 GDI 操作)
+pywin32>=306,<400; sys_platform == "win32"

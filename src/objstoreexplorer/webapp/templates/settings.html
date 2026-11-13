@@ -1,0 +1,332 @@
+{#
+Project: ObjStoreExplorer 对象存储管理工具
+Copyright (c) 2026 智维工作室 All Rights Reserved.
+著作权由智维工作室对应的自然人主体持有。
+本源码受著作权法保护，仅获得许可方可使用。
+禁止未经许可分发、转售、开源。
+#}
+
+{% extends "base.html" %}
+{% block title %}系统设置 - ObjStoreExplorer Web{% endblock %}
+{% block page_id %}settings{% endblock %}
+{% block nav_active %}active{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="head-txt"><span class="kicker">系统运维 · SETTINGS</span><h1>系统设置</h1><span class="page-desc">上传与缓存上限、Web 账号、邮件服务等系统参数集中管理</span></div>
+</div>
+
+{% if user.must_change_password %}
+<div class="card" style="border-left:4px solid var(--warning)">
+  <h2>首次登录须设置个人口令</h2>
+  <p class="hint" style="margin:6px 0 14px">您的账号由管理员创建或重置，当前使用的是临时口令。请先设置个人新口令后再使用其他功能。</p>
+  <div class="form-row" style="max-width:560px">
+    <div class="field"><label>新口令 (至少 6 位，且不同于最近用过的口令)</label><input type="password" id="pw-new" autocomplete="new-password"></div>
+    <div class="field"><label>确认新口令</label><input type="password" id="pw-new2" autocomplete="new-password"></div>
+  </div>
+  <button class="btn primary" onclick="Settings.changePw()"><svg class="ic"><use href="#i-check"/></svg>设置新口令</button>
+</div>
+{% else %}
+
+<div class="card">
+  <h2>传输与上传限制</h2>
+  <div class="field" style="max-width:360px">
+    <label>单文件上传大小限制 (MB, 0 = 不限制)</label>
+    <input type="number" id="set-max-upload" min="0">
+    <div class="hint">超过限制的文件将在上传前被拒绝</div>
+  </div>
+  {% if user.role == 'admin' %}<button class="btn primary" onclick="Settings.save()"><svg class="ic"><use href="#i-check"/></svg>保存设置</button>{% endif %}
+</div>
+
+<div class="card">
+  <h2>修改登录口令</h2>
+  <div class="form-row" style="max-width:560px">
+    <div class="field"><label>旧口令</label><input type="password" id="pw-old" autocomplete="current-password"></div>
+    <div class="field"><label>新口令 (至少 6 位)</label><input type="password" id="pw-new" autocomplete="new-password"></div>
+  </div>
+  <button class="btn primary" onclick="Settings.changePw()"><svg class="ic"><use href="#i-key"/></svg>修改口令</button>
+</div>
+
+<div class="card">
+  <h2>密码找回邮箱</h2>
+  <p class="hint" style="margin:6px 0 12px">绑定邮箱后, 忘记密码可通过「忘记密码」入口自助重置 (验证码发到该邮箱)。留空保存即解绑。</p>
+  <div class="field" style="max-width:420px">
+    <label>邮箱</label>
+    <input type="email" id="my-email" placeholder="you@example.com" autocomplete="email">
+  </div>
+  <button class="btn primary" onclick="Settings.saveEmail()"><svg class="ic"><use href="#i-mail"/></svg>保存邮箱</button>
+</div>
+
+{% if user.role == 'admin' %}
+<div class="card">
+  <h2>邮件服务 (SMTP) <span class="tag off" id="smtp-state">检测中…</span></h2>
+  <p class="hint" style="margin:6px 0 12px">用于「忘记密码」验证码发送。服务器留空即停用邮件功能; 密码留空表示保持原值。</p>
+  <div class="form-row" style="max-width:760px">
+    <div class="field"><label>SMTP 服务器</label><input type="text" id="smtp-host" placeholder="smtp.example.com"></div>
+    <div class="field" style="max-width:120px"><label>端口</label><input type="number" id="smtp-port" value="465"></div>
+    <div class="field"><label>登录账号</label><input type="text" id="smtp-user" placeholder="service@example.com"></div>
+    <div class="field"><label>密码 / 授权码</label><input type="password" id="smtp-pass" autocomplete="new-password" placeholder="留空=保持原值"></div>
+    <div class="field"><label>发件人 (留空=登录账号)</label><input type="text" id="smtp-from" placeholder="no-reply@example.com"></div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button class="btn primary" onclick="Settings.saveSmtp()"><svg class="ic"><use href="#i-check"/></svg>保存配置</button>
+    <button class="btn" onclick="Settings.testSmtp()"><svg class="ic"><use href="#i-mail"/></svg>发送测试邮件</button>
+  </div>
+</div>
+{% endif %}
+
+{% if user.role == 'admin' %}
+<div class="card">
+  <h2>Web 访问账号</h2>
+  <div class="toolbar">
+    <button class="btn primary" onclick="Settings.createUser()"><svg class="ic"><use href="#i-plus"/></svg>新建账号</button>
+    <button class="btn" onclick="Settings.loadUsers()"><svg class="ic"><use href="#i-refresh"/></svg>刷新</button>
+  </div>
+  <div class="hint" style="margin:8px 0">新建/重置口令时留空即由系统生成一次性临时口令（仅显示一次），该用户首次登录会被强制改密。停用/删除后其登录会话立即失效。</div>
+  <div id="web-users"><div class="loading-tip">加载中…</div></div>
+</div>
+{% endif %}
+
+{% endif %}
+
+<!-- 一次性临时口令展示 (v2.1) -->
+<div class="modal-mask" id="temp-pw-modal">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-head">临时口令（仅此一次显示）<button class="x" onclick="OSE.closeModal('temp-pw-modal')"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-bottom:10px">账号 <b id="temp-pw-user"></b> 的临时口令如下，请通过安全渠道转交本人；关闭窗口后无法再次查看。</p>
+      <div style="display:flex;gap:8px;align-items:center">
+        <code id="temp-pw-value" class="secret-chip"></code>
+        <button class="btn sm" onclick="Settings.copyTempPw()"><svg class="ic"><use href="#i-copy"/></svg>复制</button>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn primary" onclick="OSE.closeModal('temp-pw-modal')">我已保存</button></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script>
+(function () {
+  "use strict";
+  const canWrite = OSE.isAdmin;
+  const forced = !!OSE.user.must_change_password;
+
+  async function loadSettings() {
+    try {
+      const { data } = await OSE.get("/api/settings");
+      const el = document.getElementById("set-max-upload");
+      if (el) el.value = (data.data || {}).max_upload_size_mb ?? 0;
+    } catch (e) {}
+  }
+
+  async function save() {
+    const v = parseInt(document.getElementById("set-max-upload").value, 10);
+    const { data } = await OSE.put("/api/settings", { max_upload_size_mb: isNaN(v) ? 0 : v });
+    OSE.toast(data.message, data.success ? "success" : "error");
+  }
+
+  async function changePw() {
+    const oldEl = document.getElementById("pw-old");
+    const newEl = document.getElementById("pw-new");
+    const new2El = document.getElementById("pw-new2");
+    const oldPw = oldEl ? oldEl.value : "";
+    const newPw = newEl.value;
+    if (forced) {
+      const new2 = new2El ? new2El.value : "";
+      if (!newPw || newPw !== new2) { OSE.toast("请填写并确认新口令", "warn"); return; }
+    } else {
+      if (!oldPw || !newPw) { OSE.toast("请填写新旧口令", "warn"); return; }
+    }
+    const resp = await fetch("/api/web/password", {
+      method: "PUT", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ old_password: oldPw, new_password: newPw }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    OSE.toast(data.message || (resp.ok ? "已修改" : "失败"), resp.ok && data.success ? "success" : "error");
+    if (data.success) {
+      if (forced) { location.href = "/settings"; }  // 重新渲染, 解除强制态
+      else { oldEl.value = ""; newEl.value = ""; }
+    }
+  }
+
+  function statusTags(u) {
+    const tags = [];
+    if (u.role === "admin") tags.push('<span class="tag info">admin</span>');
+    else tags.push('<span class="tag off">viewer</span>');
+    if (!u.is_active) tags.push('<span class="tag off">停用</span>');
+    if (u.is_locked) tags.push('<span class="tag warn">锁定</span>');
+    if (u.must_change_password) tags.push('<span class="tag info">待改密</span>');
+    return tags.join(" ");
+  }
+
+  async function loadUsers() {
+    const box = document.getElementById("web-users");
+    if (!box) return;
+    try {
+      const { data } = await OSE.get("/api/web/users");
+      const users = data.data || [];
+      /* v0.1.0 XSS 加固: 用户名允许引号 (服务端只限长度), 内联 onclick 拼串
+         可被逃逸; 改为 data-un/data-role/data-active 属性 + 事件委托 */
+      box.innerHTML = `<table class="grid"><thead><tr>
+        <th>用户名</th><th>状态</th><th>邮箱</th><th>创建时间</th><th>最近登录</th><th style="width:500px">操作</th></tr></thead><tbody>` +
+        users.map((u) => {
+          const un = OSE.escapeHtml(u.username);
+          const unAttr = encodeURIComponent(u.username || "");
+          const self = u.username === OSE.user.username;
+          const locked = !!u.is_locked;
+          const nextRole = u.role === "admin" ? "viewer" : "admin";
+          return `<tr><td><b>${un}</b>${self ? ' <span class="tag info">我</span>' : ""}</td>
+            <td>${statusTags(u)}</td>
+            <td style="font-size:12px">${u.email ? OSE.escapeHtml(u.email) : '<span class="hint">未绑定</span>'}</td>
+            <td>${OSE.escapeHtml(u.created_at || "-")}</td><td>${OSE.escapeHtml(u.last_login_at || "-")}</td>
+            <td>
+              <button class="btn sm" data-act="setRole" data-un="${unAttr}" data-role="${nextRole}">改为 ${u.role === "admin" ? "viewer" : "admin"}</button>
+              <button class="btn sm" data-act="resetPw" data-un="${unAttr}" title="生成一次性临时口令并强制改密">重置口令</button>
+              <button class="btn sm" data-act="editUserEmail" data-un="${unAttr}" data-email="${encodeURIComponent(u.email || "")}" title="代管找回邮箱">邮箱</button>
+              ${locked ? `<button class="btn sm" data-act="unlock" data-un="${unAttr}">解锁</button>` : ""}
+              ${self || u.username === "admin" ? "" : `<button class="btn sm" data-act="toggleActive" data-un="${unAttr}" data-active="${u.is_active ? 0 : 1}">${u.is_active ? "停用" : "启用"}</button>`}
+              ${self || u.username === "admin" ? "" : `<button class="btn sm ghost-danger" data-act="removeUser" data-un="${unAttr}">删除</button>`}
+            </td></tr>`;
+        }).join("") + "</tbody></table>";
+      box.querySelectorAll("button[data-act]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const un = decodeURIComponent(btn.dataset.un || "");
+          switch (btn.dataset.act) {
+            case "setRole": setRole(un, btn.dataset.role); break;
+            case "resetPw": resetPw(un); break;
+            case "editUserEmail": editUserEmail(un, decodeURIComponent(btn.dataset.email || "")); break;
+            case "unlock": unlock(un); break;
+            case "toggleActive": toggleActive(un, btn.dataset.active === "1"); break;
+            case "removeUser": removeUser(un); break;
+          }
+        });
+      });
+    } catch (e) { box.innerHTML = ""; }
+  }
+
+  async function createUser() {
+    const r = await OSE.prompt("新建 Web 账号", "用户名", {
+      extraLabel: "初始口令 (留空=系统生成临时口令)",
+      hint: "默认 viewer 角色，创建后可切换。留空口令将生成一次性临时口令并强制该用户首登改密。",
+    });
+    if (!r || !r.v1) { if (r) OSE.toast("用户名必填", "warn"); return; }
+    const re = await OSE.prompt("找回邮箱", "邮箱 (可留空, 绑定后该用户可自助重置口令)");
+    const { data } = await OSE.post("/api/web/users", { username: r.v1, password: r.v2 || "", role: "viewer", email: (re && re.v1) || "" });
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) {
+      if (data.temp_password) showTempPw(r.v1, data.temp_password);
+      loadUsers();
+    }
+  }
+
+  function showTempPw(username, pw) {
+    document.getElementById("temp-pw-user").textContent = username;
+    document.getElementById("temp-pw-value").textContent = pw;
+    OSE.openModal("temp-pw-modal");
+  }
+  function copyTempPw() {
+    const t = document.getElementById("temp-pw-value").textContent;
+    if (navigator.clipboard) navigator.clipboard.writeText(t).then(() => OSE.toast("已复制", "success"));
+    else { const r = document.createRange(); r.selectNodeContents(document.getElementById("temp-pw-value")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+  }
+
+  async function setRole(username, role) {
+    const { data } = await OSE.patch(`/api/web/users/${encodeURIComponent(username)}`, { role });
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) loadUsers();
+  }
+
+  async function resetPw(username) {
+    if (!(await OSE.confirm("重置口令", `为 ${username} 生成一次性随机临时口令？该用户下次登录将被强制改密，当前锁定也会清除。`))) return;
+    const { data } = await OSE.post(`/api/web/users/${encodeURIComponent(username)}/reset-password`, {});
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) { if (data.temp_password) showTempPw(username, data.temp_password); loadUsers(); }
+  }
+
+  async function unlock(username) {
+    const { data } = await OSE.post(`/api/web/users/${encodeURIComponent(username)}/unlock`, {});
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) loadUsers();
+  }
+
+  async function toggleActive(username, active) {
+    if (!active && !(await OSE.confirm("停用账号", `停用 ${username} 后其登录会话立即失效，确定？`))) return;
+    const { data } = await OSE.patch(`/api/web/users/${encodeURIComponent(username)}`, { active: !!active });
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) loadUsers();
+  }
+
+  async function removeUser(username) {
+    if (!(await OSE.confirm("删除账号", `确定删除 Web 账号 ${username}?（软删除，数据保留供审计，同名可再注册）`))) return;
+    const { data } = await OSE.del(`/api/web/users/${encodeURIComponent(username)}`);
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) loadUsers();
+  }
+
+  // ==================== v2.3 找回邮箱 ====================
+  async function loadMyEmail() {
+    try {
+      const { data } = await OSE.get("/api/web/me");
+      const el = document.getElementById("my-email");
+      if (el && data.success) el.value = (data.data || {}).email || "";
+    } catch (e) {}
+  }
+  async function saveEmail() {
+    const v = document.getElementById("my-email").value.trim();
+    const { data } = await OSE.put("/api/web/email", { email: v });
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) document.getElementById("my-email").value = data.email || "";
+  }
+
+  async function editUserEmail(username, cur) {
+    const r = await OSE.prompt("找回邮箱 — " + username, "邮箱 (留空保存=清除)", { value: cur || "", hint: "绑定后该用户可通过「忘记密码」自助重置口令。" });
+    if (!r) return;
+    const { data } = await OSE.patch(`/api/web/users/${encodeURIComponent(username)}`, { email: r.v1 });
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) loadUsers();
+  }
+
+  // ==================== v2.3 SMTP 配置 ====================
+  async function loadSmtp() {
+    const badge = document.getElementById("smtp-state");
+    try {
+      const { data } = await OSE.get("/api/settings/smtp");
+      if (!data.success || !data.data) return;
+      const d = data.data;
+      document.getElementById("smtp-host").value = d.host || "";
+      document.getElementById("smtp-port").value = d.port || 465;
+      document.getElementById("smtp-user").value = d.user || "";
+      document.getElementById("smtp-from").value = d.from || "";
+      document.getElementById("smtp-pass").placeholder = d.password_set ? "已设置 (留空=保持原值)" : "未设置";
+      if (badge) { badge.textContent = d.configured ? "已配置" : "未配置"; badge.className = d.configured ? "tag ok" : "tag warn"; }
+    } catch (e) { if (badge) badge.textContent = "读取失败"; }
+  }
+  async function saveSmtp() {
+    const body = {
+      host: document.getElementById("smtp-host").value.trim(),
+      port: parseInt(document.getElementById("smtp-port").value, 10) || 465,
+      user: document.getElementById("smtp-user").value.trim(),
+      mail_from: document.getElementById("smtp-from").value.trim(),
+    };
+    const pw = document.getElementById("smtp-pass").value;
+    if (pw) body.password = pw;
+    const { data } = await OSE.put("/api/settings/smtp", body);
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) { document.getElementById("smtp-pass").value = ""; loadSmtp(); }
+  }
+  async function testSmtp() {
+    const to = await OSE.prompt("SMTP 测试", "收件邮箱 (配置须已保存)");
+    if (!to || !to.v1) return;
+    const { data } = await OSE.post("/api/settings/smtp/test", { to: to.v1 });
+    OSE.toast(data.message, data.success ? "success" : "error");
+  }
+
+  window.Settings = { save, changePw, loadUsers, createUser, setRole, resetPw, removeUser, unlock, toggleActive, copyTempPw, saveEmail, editUserEmail, loadSmtp, saveSmtp, testSmtp };
+  if (!forced) loadSettings();
+  if (!forced) loadMyEmail();
+  if (canWrite && !forced) { loadUsers(); loadSmtp(); }
+})();
+</script>
+{% endblock %}

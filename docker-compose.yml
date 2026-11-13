@@ -1,0 +1,25 @@
+# ObjStoreExplorer Web 容器版 一键部署
+#
+#   docker compose up -d --build     # 启动 (首次构建需几分钟)
+#   浏览器打开 http://localhost:6083
+#   初始管理员账号 admin, 密码见 docker logs (或用 WEB_ADMIN_PASSWORD 环境变量指定)
+#
+# v0.1.0 起桌面版与 Web 容器版版本号统一 (此前 Web 内部迭代号为 2.x)
+services:
+  objstoreexplorer-web:
+    build:
+      context: .
+      args:
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple # 海外服务器可整段删掉
+    image: objstoreexplorer-web:v0.1.0
+    container_name: objstoreexplorer-web
+    ports:
+      - "6083:8000" # 宿主端口改左半边 (18080: 该服务器 8080 已被其他容器占用)
+    volumes:
+      - ./data:/app/data # Web 账号库 / 加密连接历史 / 操作日志 / 上传临时目录
+    environment:
+      TZ: Asia/Shanghai
+      # WEB_ADMIN_PASSWORD: "change-me" # 可选: 首次启动 admin 初始密码, 不设则随机生成看日志
+      # WEB_WORKERS: "2" # 可选: uvicorn worker 进程数 (默认 1)。会话/连接/任务已外置
+      #                  # SQLite (data 卷), 多 worker 可用; 调大前提与注意见 README
+    restart: unless-stopped

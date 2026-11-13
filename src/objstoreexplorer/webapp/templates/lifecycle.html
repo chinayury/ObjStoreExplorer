@@ -1,0 +1,108 @@
+{#
+Project: ObjStoreExplorer 对象存储管理工具
+Copyright (c) 2026 智维工作室 All Rights Reserved.
+著作权由智维工作室对应的自然人主体持有。
+本源码受著作权法保护，仅获得许可方可使用。
+禁止未经许可分发、转售、开源。
+#}
+
+{% extends "base.html" %}
+{% block title %}生命周期 - ObjStoreExplorer Web{% endblock %}
+{% block page_id %}lifecycle{% endblock %}
+{% block nav_active %}active{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="head-txt"><span class="kicker">存储治理 · LIFECYCLE</span><h1>生命周期规则</h1><span class="page-desc">按前缀设置过期 / 存储层级转换 / 中止未完成分片，规则即时生效</span></div>
+</div>
+<div class="card">
+  <div class="field">
+    <label>选择桶</label>
+    <select id="lc-bucket" onchange="Lifecycle.load()" style="max-width:320px"></select>
+  </div>
+  <h2>当前生效规则 <span class="sub-note">按前缀自动过期或转换</span></h2>
+  <div id="lc-rules"><div class="loading-tip">选择桶后查看</div></div>
+</div>
+
+{% if user.role == 'admin' %}
+<div class="card">
+  <h2>新增 / 覆盖规则 <span class="sub-note">同前缀规则将被覆盖</span></h2>
+  <p class="hint" style="margin:-6px 0 12px">本页按「单规则」模式应用, 保存后将覆盖该桶现有全部生命周期配置</p>
+  <div class="form-row">
+    <div class="field"><label>规则 ID</label><input type="text" id="lc-id" value="expire-30d"></div>
+    <div class="field"><label>前缀 (留空 = 整桶)</label><input type="text" id="lc-prefix" placeholder="logs/"></div>
+    <div class="field"><label>过期天数</label><input type="number" id="lc-days" value="30" min="1"></div>
+    <div class="field"><label>状态</label>
+      <select id="lc-enabled"><option value="1">启用</option><option value="0">禁用</option></select>
+    </div>
+  </div>
+  <div class="form-actions" style="justify-content:flex-start">
+    <button class="btn primary" onclick="Lifecycle.apply()"><svg class="ic"><use href="#i-check"/></svg>应用规则</button>
+    <button class="btn ghost-danger" onclick="Lifecycle.remove()"><svg class="ic"><use href="#i-trash"/></svg>清除全部规则</button>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block page_js %}
+<script>
+(function () {
+  "use strict";
+
+  async function loadBuckets() {
+    const sel = document.getElementById("lc-bucket");
+    try {
+      const { data } = await OSE.get("/api/buckets");
+      const buckets = data.success ? data.data || [] : [];
+      sel.innerHTML = '<option value="">— 选择桶 —</option>' +
+        buckets.map((b) => `<option>${OSE.escapeHtml(b)}</option>`).join("");
+    } catch (e) { sel.innerHTML = ""; }
+  }
+
+  async function load() {
+    const bucket = document.getElementById("lc-bucket").value;
+    const box = document.getElementById("lc-rules");
+    if (!bucket) { box.textContent = "选择桶后查看"; return; }
+    box.innerHTML = '<div class="loading-tip">查询中…</div>';
+    try {
+      const { data } = await OSE.get(`/api/lifecycle/${encodeURIComponent(bucket)}`);
+      if (!data.success) { box.innerHTML = `<span class="tag err">${OSE.escapeHtml(data.message)}</span>`; return; }
+      const rules = data.data || [];
+      if (!rules.length) { box.innerHTML = '<div class="empty-state">未配置生命周期规则</div>'; return; }
+      box.innerHTML = `<table class="grid"><thead><tr><th>规则 ID</th><th>前缀</th><th>过期天数</th><th>状态</th></tr></thead><tbody>` +
+        rules.map((r) => `<tr><td class="mono">${OSE.escapeHtml(r.id)}</td><td>${OSE.escapeHtml(r.prefix || "(整桶)")}</td>
+          <td>${r.days ?? "-"}</td><td><span class="tag ${String(r.status).includes("Enabled") ? "ok" : "off"}">${OSE.escapeHtml(r.status)}</span></td></tr>`).join("") +
+        "</tbody></table>";
+    } catch (e) { box.innerHTML = ""; }
+  }
+
+  async function apply() {
+    const bucket = document.getElementById("lc-bucket").value;
+    if (!bucket) { OSE.toast("请先选择桶", "warn"); return; }
+    const body = {
+      rule_id: document.getElementById("lc-id").value.trim() || "rule",
+      prefix: document.getElementById("lc-prefix").value.trim(),
+      days: parseInt(document.getElementById("lc-days").value, 10) || 0,
+      enabled: document.getElementById("lc-enabled").value === "1",
+    };
+    const { data } = await OSE.put(`/api/lifecycle/${encodeURIComponent(bucket)}`, body);
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) load();
+  }
+
+  async function remove() {
+    const bucket = document.getElementById("lc-bucket").value;
+    if (!bucket) { OSE.toast("请先选择桶", "warn"); return; }
+    if (!(await OSE.confirm("清除生命周期", `确定清除桶 ${bucket} 的全部生命周期规则?`))) return;
+    const { data } = await OSE.del(`/api/lifecycle/${encodeURIComponent(bucket)}`);
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) load();
+  }
+
+  window.Lifecycle = { load, apply, remove };
+  OSE.refresh = loadBuckets;
+  OSE.onConnectionChanged = loadBuckets;
+  loadBuckets();
+})();
+</script>
+{% endblock %}

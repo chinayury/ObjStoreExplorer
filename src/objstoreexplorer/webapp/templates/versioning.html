@@ -1,0 +1,182 @@
+{#
+Project: ObjStoreExplorer 对象存储管理工具
+Copyright (c) 2026 智维工作室 All Rights Reserved.
+著作权由智维工作室对应的自然人主体持有。
+本源码受著作权法保护，仅获得许可方可使用。
+禁止未经许可分发、转售、开源。
+#}
+
+{% extends "base.html" %}
+{% block title %}版本控制 - ObjStoreExplorer Web{% endblock %}
+{% block page_id %}versioning{% endblock %}
+{% block nav_active %}active{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="head-txt"><span class="kicker">存储治理 · VERSIONING</span><h1>版本控制</h1><span class="page-desc">桶级版本化开关；误覆盖的对象可一键回滚到任意历史版本</span></div>
+</div>
+<div class="card">
+  <div class="field">
+    <label>选择桶</label>
+    <select id="ver-bucket" onchange="Versioning.check()" style="max-width:320px"></select>
+  </div>
+  <div id="ver-status" class="loading-tip">选择桶后查看当前状态</div>
+  {% if user.role == 'admin' %}
+  <div class="form-actions" style="justify-content:flex-start">
+    <button class="btn primary" onclick="Versioning.set('Enabled')"><svg class="ic"><use href="#i-check"/></svg>启用版本控制</button>
+    <button class="btn" onclick="Versioning.set('Suspended')"><svg class="ic"><use href="#i-clock"/></svg>暂停版本记录 (Suspended)</button>
+  </div>
+  {% endif %}
+</div>
+
+{# v0.1.0 新增: 对象历史版本浏览 / 恢复 / 删除 (误覆盖自救入口) #}
+<div class="card">
+  <h2>历史版本浏览 <span class="sub-note">误覆盖 / 误删后，可把任意历史版本恢复为当前版本</span></h2>
+  <div class="toolbar">
+    <input type="text" id="ver-prefix" placeholder="按对象名前缀过滤 (可留空, 如 docs/)" style="width:280px">
+    <button class="btn" onclick="Versions.load()"><svg class="ic"><use href="#i-search"/></svg>查询版本</button>
+  </div>
+  <div id="ver-versions"><div class="empty-state"><div class="big"><svg class="ic"><use href="#i-version"/></svg></div>选择桶后点击「查询版本」</div></div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script>
+(function () {
+  "use strict";
+
+  async function loadBuckets() {
+    const sel = document.getElementById("ver-bucket");
+    try {
+      const { data } = await OSE.get("/api/buckets");
+      const buckets = data.success ? data.data || [] : [];
+      sel.innerHTML = '<option value="">— 选择桶 —</option>' +
+        buckets.map((b) => `<option>${OSE.escapeHtml(b)}</option>`).join("");
+    } catch (e) { sel.innerHTML = ""; }
+  }
+
+  async function check() {
+    const bucket = document.getElementById("ver-bucket").value;
+    const box = document.getElementById("ver-status");
+    if (!bucket) { box.textContent = "选择桶后查看当前状态"; return; }
+    box.innerHTML = '<span class="loading-tip">查询中…</span>';
+    try {
+      const { data } = await OSE.get(`/api/versioning/${encodeURIComponent(bucket)}`);
+      if (!data.success) { box.innerHTML = `<span class="tag err">${OSE.escapeHtml(data.message)}</span>`; return; }
+      const st = data.data.status || "Off";
+      const map = { Enabled: ["ok", "已启用 (Enabled)"], Suspended: ["warn", "已暂停 (Suspended)"], Off: ["off", "未启用 (Off)"] };
+      const [cls, label] = map[st] || ["off", st];
+      box.innerHTML = `<span class="tag ${cls}" style="font-size:14px">${label}</span>`;
+    } catch (e) { box.textContent = ""; }
+  }
+
+  async function set(status) {
+    const bucket = document.getElementById("ver-bucket").value;
+    if (!bucket) { OSE.toast("请先选择桶", "warn"); return; }
+    const { data } = await OSE.put(`/api/versioning/${encodeURIComponent(bucket)}`, { status });
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) check();
+  }
+
+  /* ==================== 历史版本浏览 (v0.1.0 新增) ==================== */
+
+  function fmtSize(n) {
+    if (n == null) return "—";
+    if (n < 1024) return n + " B";
+    if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+    if (n < 1073741824) return (n / 1048576).toFixed(1) + " MB";
+    return (n / 1073741824).toFixed(2) + " GB";
+  }
+
+  async function loadVersions() {
+    const bucket = document.getElementById("ver-bucket").value;
+    const box = document.getElementById("ver-versions");
+    if (!bucket) { OSE.toast("请先选择桶", "warn"); return; }
+    box.innerHTML = '<div class="loading-tip">正在列举历史版本…</div>';
+    try {
+      const { data } = await OSE.post(
+        `/api/versions/${encodeURIComponent(bucket)}/list`,
+        { prefix: document.getElementById("ver-prefix").value.trim() });
+      if (!data.success) {
+        box.innerHTML = `<div class="empty-state">${OSE.escapeHtml(data.message)}</div>`;
+        return;
+      }
+      const rows = data.data || [];
+      if (!rows.length) {
+        box.innerHTML = `<div class="empty-state"><div class="big"><svg class="ic"><use href="#i-version"/></svg></div>没有历史版本记录 (未启用版本控制的桶只有当前版本)</div>`;
+        return;
+      }
+      const head = `<tr><th>对象名</th><th>版本 ID</th><th>大小</th><th>最后修改</th><th>状态</th>${OSE.isAdmin ? "<th>操作</th>" : ""}</tr>`;
+      const body = rows.map((r, i) => {
+        const vid = String(r.version_id || "");
+        const short = vid.length > 14 ? vid.slice(0, 8) + "…" + vid.slice(-4) : vid;
+        const flags = [];
+        if (r.is_latest) flags.push('<span class="tag ok">当前版本</span>');
+        if (r.is_delete_marker) flags.push('<span class="tag err">删除标记</span>');
+        const acts = OSE.isAdmin
+          ? `<button class="btn sm" data-act="restore" data-i="${i}"><svg class="ic"><use href="#i-refresh"/></svg>恢复</button>
+             <button class="btn sm ghost-danger" data-act="del" data-i="${i}"><svg class="ic"><use href="#i-trash"/></svg>删除</button>`
+          : "";
+        return `<tr>
+          <td class="cell-name"><svg class="ic obj-ic"><use href="#i-file"/></svg><span class="name-txt">${OSE.escapeHtml(r.key || "")}</span></td>
+          <td class="mono" title="${OSE.escapeHtml(vid)}">${OSE.escapeHtml(short)}</td>
+          <td>${fmtSize(r.size)}</td>
+          <td>${OSE.escapeHtml(String(r.last_modified || "—"))}</td>
+          <td>${flags.join(" ") || '<span class="tag off">历史版本</span>'}</td>
+          <td>${acts}</td></tr>`;
+      }).join("");
+      box.innerHTML = `<table class="grid"><thead>${head}</thead><tbody>${body}</tbody></table>` +
+        (data.truncated ? '<div class="note-line" style="margin-top:8px">仅显示前 200 条版本记录, 请用前缀缩小范围。</div>' : "");
+      box.querySelectorAll("[data-act]").forEach((el) =>
+        el.addEventListener("click", () => {
+          const r = rows[Number(el.dataset.i)];
+          if (el.dataset.act === "restore") restore(bucket, r);
+          else remove(bucket, r);
+        }));
+    } catch (e) { box.innerHTML = ""; }
+  }
+
+  async function restore(bucket, r) {
+    const vid = String(r.version_id || "");
+    if (!vid) { OSE.toast("该记录没有版本 ID, 无法恢复", "warn"); return; }
+    if (r.is_delete_marker) {
+      OSE.toast("这是删除标记, 恢复它等于再次删除; 请选择更早的版本", "warn");
+      return;
+    }
+    const okConfirm = await OSE.confirm(
+      "恢复历史版本",
+      `把 ${r.key} 的版本 ${vid.slice(0, 10)}… 恢复为当前版本?\n` +
+      "(原内容会被这条历史版本覆盖, 当前内容仍可从版本记录里找回)");
+    if (!okConfirm) return;
+    const { data } = await OSE.post(
+      `/api/versions/${encodeURIComponent(bucket)}/restore`,
+      { key: r.key, version_id: vid });
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) loadVersions();
+  }
+
+  async function remove(bucket, r) {
+    const vid = String(r.version_id || "");
+    if (!vid) { OSE.toast("该记录没有版本 ID", "warn"); return; }
+    if (r.is_latest) {
+      OSE.toast("当前版本不能单独删除, 请恢复其他版本或删除整个对象", "warn");
+      return;
+    }
+    const okConfirm = await OSE.confirm(
+      "删除历史版本", `永久删除 ${r.key} 的版本 ${vid.slice(0, 10)}… ?\n此操作不可恢复。`);
+    if (!okConfirm) return;
+    const { data } = await OSE.del(
+      `/api/versions/${encodeURIComponent(bucket)}`,
+      { key: r.key, version_id: vid });
+    OSE.toast(data.message, data.success ? "success" : "error");
+    if (data.success) loadVersions();
+  }
+
+  window.Versioning = { check, set, load: loadBuckets };
+  window.Versions = { load: loadVersions };
+  OSE.refresh = loadBuckets;
+  OSE.onConnectionChanged = loadBuckets;
+  loadBuckets();
+})();
+</script>
+{% endblock %}
