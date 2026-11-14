@@ -84,22 +84,39 @@ TransferProgressFn = Callable[[int, int, str], None]
 # ==================== minio 协议适配 ====================
 
 class _CancellableReader:
-    """包一层文件对象, 让分片上传能在**分片边界**响应取消
+    """包一层文件对象, 让分片上传能在**分片边界**响应取消/暂停/限速
 
     minio SDK 的 fput_object 内部没有取消检查点, 只能等整个文件传完。
     改为自管分片 (put_object + 我们的 reader) 后, 每次 read() 前检查取消标志,
     抛 CancelledError 打断 minio 的分片循环; minio 会自动 AbortMultipartUpload
     回收已上传的分片, 桶里不会留下半截对象。
+
+    v0.3.0 起同一检查点兼做暂停等待与限速节流: 暂停时在分片边界阻塞
+    (已建连接不拆, 恢复后续传), 限速按累计字节平滑补眠。
     """
 
-    def __init__(self, fp, is_cancelled: Callable[[], bool]):
+    def __init__(self, fp, is_cancelled: Callable[[], bool],
+                 is_paused: Optional[Callable[[], bool]] = None,
+                 pacer: Optional[Callable[[int], None]] = None):
         self._fp = fp
         self._is_cancelled = is_cancelled
+        self._is_paused = is_paused
+        self._pacer = pacer
 
     def read(self, size: int = -1) -> bytes:
         if self._is_cancelled():
             raise CancelledError("用户取消")
-        return self._fp.read(size)
+        # 暂停检查点: 阻塞到恢复/取消为止 (不占 CPU, 量子轮询)
+        while self._is_paused is not None and self._is_paused():
+            if self._is_cancelled():
+                raise CancelledError("用户取消")
+            time.sleep(0.1)
+        if self._is_cancelled():
+            raise CancelledError("用户取消")
+        data = self._fp.read(size)
+        if self._pacer is not None and data:
+            self._pacer(len(data))
+        return data
 
     def close(self) -> None:
         try:
@@ -146,6 +163,7 @@ class TransferTask:
         self.size = size
         self.task_id: str = ""
         self._cancelled = threading.Event()
+        self._paused = threading.Event()
         self._completed = threading.Event()
         self.error: Optional[Exception] = None
         self.progress = 0.0
@@ -155,6 +173,18 @@ class TransferTask:
 
     def is_cancelled(self) -> bool:
         return self._cancelled.is_set()
+
+    # ---------- 暂停 / 恢复 (Pail 借鉴: 传输队列可暂停) ----------
+    # 暂停只是让传输线程在检查点等待, 已建连接不拆; cancel 优先于 pause
+
+    def pause(self) -> None:
+        self._paused.set()
+
+    def resume(self) -> None:
+        self._paused.clear()
+
+    def is_paused(self) -> bool:
+        return self._paused.is_set()
 
     def is_completed(self) -> bool:
         return self._completed.is_set()
@@ -188,6 +218,8 @@ class TransferService:
         )
         self._executor_closed = False
         self._cancelled_all = threading.Event()
+        # 全局限速 (字节/秒, None=不限); pacer 每次 read 时读取, 改动即时生效
+        self._rate_bps: Optional[int] = None
 
     # ==================== 任务登记 ====================
 
@@ -217,6 +249,72 @@ class TransferService:
 
     def _is_cancelled(self, task: TransferTask) -> bool:
         return self._cancelled_all.is_set() or task.is_cancelled()
+
+    # ==================== 暂停 / 恢复 / 限速 ====================
+
+    def _wait_while_paused(self, task: TransferTask) -> None:
+        """文件边界暂停等待: 恢复或取消才返回 (worker 线程内调用)"""
+        while task.is_paused() and not self._is_cancelled(task):
+            time.sleep(0.1)
+
+    def get_task(self, task_id: str) -> Optional[TransferTask]:
+        with self._lock:
+            return self._tasks.get(task_id)
+
+    def pause_task(self, task_id: str) -> bool:
+        """暂停任务 (在途任务才可暂停); 返回是否生效"""
+        task = self.get_task(task_id)
+        if task is None or task.is_completed():
+            return False
+        task.pause()
+        return True
+
+    def resume_task(self, task_id: str) -> bool:
+        task = self.get_task(task_id)
+        if task is None:
+            return False
+        task.resume()
+        return True
+
+    def set_rate_limit(self, bytes_per_sec: Optional[int]) -> None:
+        """全局上传限速 (字节/秒); None 或非正值 = 不限速。
+
+        即时生效 (pacer 每次 read 重新读取); 只约束自管分片上传路径,
+        退回 core 路径的小文件不走此限速。
+        """
+        with self._lock:
+            if bytes_per_sec is not None and bytes_per_sec <= 0:
+                bytes_per_sec = None
+            self._rate_bps = bytes_per_sec
+
+    def get_rate_limit(self) -> Optional[int]:
+        with self._lock:
+            return self._rate_bps
+
+    def _make_pacer(self, task: TransferTask) -> Callable[[int], None]:
+        """构造限速 pacer (平滑漏桶): 按累计字节折算应耗时, 不足则补眠。
+
+        补眠期间持续检查取消 —— 取消后立即放行, 让下一次 read() 抛
+        CancelledError; 暂停不在这里处理 (reader 的 read 已有暂停检查点)。
+        """
+        state = {"sent": 0, "t0": time.monotonic()}
+
+        def pace(n: int) -> None:
+            with self._lock:
+                bps = self._rate_bps
+            if not bps or bps <= 0:
+                return
+            state["sent"] += n
+            expected = state["t0"] + state["sent"] / bps
+            while True:
+                remain = expected - time.monotonic()
+                if remain <= 0:
+                    return
+                if self._is_cancelled(task):
+                    return
+                time.sleep(min(0.1, remain))
+
+        return pace
 
     # ---------- 在途任务观测 (供 ServiceLocator 断开时等待) ----------
 
@@ -397,7 +495,12 @@ class TransferService:
         content_type = mimetypes.guess_type(key)[0] or "application/octet-stream"
         adapter = _ByteProgressAdapter(lambda p, t=task: t.update_progress(p))
         with open(local_path, "rb") as fp:
-            reader = _CancellableReader(fp, lambda t=task: self._is_cancelled(t))
+            reader = _CancellableReader(
+                fp,
+                lambda t=task: self._is_cancelled(t),
+                is_paused=lambda t=task: t.is_paused(),
+                pacer=self._make_pacer(task),
+            )
             # 异常 (含 CancelledError) 直接向上抛:
             # minio 内部会 AbortMultipartUpload 回收分片, 重试逻辑也靠它拿类型
             client.put_object(
@@ -422,6 +525,11 @@ class TransferService:
         locator, 避免 disconnect 清缓存瞬间取不到 file_manager。
         """
         try:
+            if self._is_cancelled(task):
+                task.mark_done(CancelledError("用户取消"))
+                return False, "已取消"
+            # 文件边界暂停检查点 (分片上传的中途暂停在 reader 内处理)
+            self._wait_while_paused(task)
             if self._is_cancelled(task):
                 task.mark_done(CancelledError("用户取消"))
                 return False, "已取消"

@@ -68,6 +68,7 @@ class WebTask:
         # 明细: [{key/file, success, message}, ...]
         self.details: List[Dict[str, Any]] = []
         self._cancelled = threading.Event()
+        self._paused = threading.Event()
         self._dir: Optional[Path] = None  # 临时工作目录
 
     def cancel(self) -> None:
@@ -76,6 +77,19 @@ class WebTask:
     @property
     def cancelled(self) -> bool:
         return self._cancelled.is_set()
+
+    # ---------- 暂停 / 恢复 (Pail 借鉴; 与 cancel 同源事件模型) ----------
+    # 暂停只在执行所在 worker 内存中生效; 跨 worker 暂停待后续 (cancel 已支持)
+
+    def pause(self) -> None:
+        self._paused.set()
+
+    def resume(self) -> None:
+        self._paused.clear()
+
+    @property
+    def paused(self) -> bool:
+        return self._paused.is_set()
 
     @property
     def is_finished(self) -> bool:
@@ -92,6 +106,7 @@ class WebTask:
             "current": self.current,
             "current_name": self.current_name,
             "progress": round(self.current / self.total, 4) if self.total else 0.0,
+            "paused": self.paused,
             "error": self.error,
             "details": self.details[-20:],  # 明细最多回传 20 条
             "failure_count": sum(1 for d in self.details if not d.get("success")),
@@ -170,6 +185,7 @@ class TaskView:
             "current": current,
             "current_name": self._row["current_name"] or "",
             "progress": round(current / total, 4) if total else 0.0,
+            "paused": False,  # 跨 worker 只读视图不承载暂停态 (暂停仅在执行 worker 内存)
             "error": self._row["error"] or "",
             "details": details,
             "failure_count": sum(1 for d in details if not d.get("success")),
@@ -266,6 +282,11 @@ class WebTaskManager:
             pass
         return False
 
+    def _wait_while_paused(self, task: WebTask) -> None:
+        """文件边界暂停等待: 恢复或取消才返回 (执行线程内调用)"""
+        while task.paused and not self._should_stop(task):
+            time.sleep(0.1)
+
     # ==================== 任务执行 ====================
 
     def run_upload(
@@ -292,6 +313,7 @@ class WebTaskManager:
                 fm = session.file_manager
                 prefix_norm = prefix if (not prefix or prefix.endswith("/")) else prefix + "/"
                 for i, fp in enumerate(file_paths):
+                    self._wait_while_paused(task)
                     if self._should_stop(task):
                         break
                     rel = rel_paths[i] if rel_paths and i < len(rel_paths) else fp.name
@@ -364,6 +386,7 @@ class WebTaskManager:
 
                 failed_any = False
                 for i, key in enumerate(expanded):
+                    self._wait_while_paused(task)
                     if self._should_stop(task):
                         break
                     rel = key.rstrip("/")
@@ -536,6 +559,27 @@ class WebTaskManager:
         if isinstance(task, WebTask) and self._persist is not None:
             # 本地取消也同步落库, 让其他 worker 的轮询口径一致
             self._sync(task)
+        return True
+
+    # ==================== 暂停 / 恢复 ====================
+
+    def pause_task(self, task_id: str) -> bool:
+        """暂停任务: 仅本 worker 的执行副本可暂停 (跨 worker 视图返回 False)"""
+        task = self.get(task_id)
+        if not isinstance(task, WebTask):
+            # TaskView (其他 worker 的只读视图) 或不存在: 暂停态在执行
+            # worker 内存里, 跨 worker 暂停待后续 (DB 无暂停列)
+            return False
+        if task.is_finished:
+            return False
+        task.pause()
+        return True
+
+    def resume_task(self, task_id: str) -> bool:
+        task = self.get(task_id)
+        if task is None or not isinstance(task, WebTask):
+            return False
+        task.resume()
         return True
 
     # ==================== 清理 ====================

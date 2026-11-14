@@ -71,6 +71,34 @@ def api_cancel_task(request: Request, task_id: str):
     return {"success": True, "message": "已请求取消"}
 
 
+@router.post("/tasks/{task_id}/pause")
+def api_pause_task(request: Request, task_id: str):
+    """暂停任务 (Pail 借鉴): 仅执行 worker 可暂停; 暂停期间任务保留在 running 态,
+    paused=True 供前端展示。跨 worker 的只读视图不支持暂停, 如实返回失败原因。"""
+    user = require_api_user(request)
+    task = get_state().tasks.get(task_id)
+    if task is None:
+        return {"success": False, "message": "任务不存在"}
+    if not _can_access(task, request, user):
+        raise _APIException(403, "无权操作其他会话的任务")
+    if not get_state().tasks.pause_task(task_id):
+        return {"success": False, "message": "任务不支持暂停 (已结束或运行在另一节点)"}
+    return {"success": True, "message": "已暂停"}
+
+
+@router.post("/tasks/{task_id}/resume")
+def api_resume_task(request: Request, task_id: str):
+    user = require_api_user(request)
+    task = get_state().tasks.get(task_id)
+    if task is None:
+        return {"success": False, "message": "任务不存在"}
+    if not _can_access(task, request, user):
+        raise _APIException(403, "无权操作其他会话的任务")
+    if not get_state().tasks.resume_task(task_id):
+        return {"success": False, "message": "任务不支持恢复 (已结束或运行在另一节点)"}
+    return {"success": True, "message": "已恢复"}
+
+
 @router.get("/tasks/{task_id}/result")
 def api_task_result(request: Request, task_id: str):
     """取打包下载结果 (zip) — 仅任务归属会话或 admin 可取"""

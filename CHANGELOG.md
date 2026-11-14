@@ -4,6 +4,34 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [v0.3.0 · 每周维护第二轮] — 2026-11-14 · 传输任务暂停 / 恢复 / 限速
+
+> 同日第二轮维护循环（调研 → Issues 巡检 → 优化 → 发布 → 清理验证）。开放 Issues 巡检：0 条待处置；
+> 同日调研与 [docs/06](docs/06-同类项目调研与借鉴.md) 去重基线内无新增借鉴点。
+> 本轮落地「Pail 借鉴 #1 传输队列」第一批：桌面核心层 + Web 全链路。
+
+### 🆕 Added
+
+- **传输任务暂停 / 恢复 / 全局限速**（借鉴 Pail）：
+  - 桌面核心层：`TransferTask.pause() / resume()`——分片上传在**分片边界**暂停等待（已建连接
+    不拆；取消优先于暂停，暂停中取消立即中断并回收分片）；`TransferService.set_rate_limit()`
+    全局限速（平滑漏桶按累计字节补眠，取消可即时打断，改动即时生效）。
+  - Web 端：`WebTaskManager.pause / resume` + `POST /api/tasks/{id}/pause | resume`
+    （归属校验与取消一致），任务面板对进行中任务新增「暂停 / 恢复」按钮与「已暂停」标记。
+  - 冒烟测试 +5（reader 暂停/取消、限速 pacer、服务 API、WebTask 集成、路由鉴权与降级），
+    共 21 项全绿。
+
+### 🔄 Changed
+
+- `docs/06`：要点 #1 更新为「第一批已落地」；要点 #2（对象列表按需分页）复核后暂缓——
+  minio-py 公开 API 未暴露 continuation token / max_keys，真分页需下探 S3 原始调用并配
+  真实 MinIO 集成测试，自动维护轮不盲改。
+- `docs/03`：补充任务面板暂停/恢复用法与多 worker 已知限制。
+- 已知限制（如实）：暂停状态保存在执行节点内存，多 worker 跨节点暂停如实返回「不支持」
+  （**取消**已落库跨节点生效）；限速只约束自管分片上传路径；桌面 UI 暂停/恢复按钮待下一批。
+
+---
+
 ## [v0.2.0 · 每周维护第一轮] — 2026-11-14 · 版本单一来源收敛 · 容器加固 · 检查更新
 
 > 本轮为每周自动维护循环首轮（调研借鉴 → Issues 巡检 → 优化 → 发布 → 清理验证）。

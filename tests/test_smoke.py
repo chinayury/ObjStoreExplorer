@@ -193,3 +193,184 @@ def test_about_page_has_update_check(admin_client):
     assert resp.status_code == 200
     assert "btn-check-update" in resp.text
     assert "/api/update-check" in resp.text
+
+
+# ==================== 传输任务暂停 / 恢复 / 限速 ====================
+
+
+def test_transfer_reader_pause_resume_and_cancel():
+    """暂停时 read 在分片边界阻塞; 恢复后继续; 暂停中取消立即抛 CancelledError"""
+    import io
+    import threading as th
+
+    from objstoreexplorer.config.exceptions import CancelledError
+    from objstoreexplorer.services.transfer_service import _CancellableReader, TransferTask
+
+    task = TransferTask("upload", "b", "k", "p")
+    task.pause()
+    reader = _CancellableReader(io.BytesIO(b"x" * 32), task.is_cancelled, task.is_paused)
+    got: list = []
+    t = th.Thread(target=lambda: got.append(reader.read(16)), daemon=True)
+    t.start()
+    t.join(timeout=0.3)
+    assert t.is_alive(), "暂停中 read 应当阻塞"
+    task.resume()
+    t.join(timeout=2)
+    assert not t.is_alive() and got == [b"x" * 16]
+
+    task.pause()
+    task.cancel()
+    try:
+        reader.read(16)
+        raise AssertionError("暂停中取消应当抛 CancelledError")
+    except CancelledError:
+        pass
+
+
+def test_transfer_rate_limit_pacer():
+    """限速 pacer 按累计字节平滑节流; 取消后立即放行"""
+    import time as _t
+
+    from objstoreexplorer.services.transfer_service import TransferService, TransferTask
+
+    svc = TransferService(locator=None)
+    try:
+        svc.set_rate_limit(2000)  # 2000 B/s
+        assert svc.get_rate_limit() == 2000
+        svc.set_rate_limit(0)  # 非正值归位为不限速
+        assert svc.get_rate_limit() is None
+        svc.set_rate_limit(2000)
+
+        task = TransferTask("upload", "b", "k", "p")
+        pace = svc._make_pacer(task)
+        t0 = _t.monotonic()
+        pace(1000)
+        pace(1000)  # 累计 2000B @ 2000B/s -> 应耗约 1s
+        elapsed = _t.monotonic() - t0
+        assert 0.8 <= elapsed <= 3.0, f"限速未生效或过慢: {elapsed:.2f}s"
+
+        task.cancel()
+        t1 = _t.monotonic()
+        pace(1000)  # 取消后不再等待
+        assert _t.monotonic() - t1 < 0.5
+    finally:
+        svc.cleanup()
+
+
+def test_transfer_service_pause_resume_api():
+    from objstoreexplorer.services.transfer_service import TransferService, TransferTask
+
+    svc = TransferService(locator=None)
+    try:
+        task = TransferTask("upload", "b", "k", "p")
+        tid = svc._register(task)
+        assert svc.pause_task(tid) is True
+        assert task.is_paused() and svc.get_task(tid) is task
+        assert svc.resume_task(tid) is True
+        assert not task.is_paused()
+        assert svc.pause_task("nope") is False
+        task.mark_done()
+        assert svc.pause_task(tid) is False, "已完成任务不可暂停"
+    finally:
+        svc.cleanup()
+
+
+def test_webtask_pause_resume_in_run_upload():
+    """Web 上传任务: 文件边界暂停 -> 恢复 -> 全部完成"""
+    import threading as th
+    import time as _t
+    from pathlib import Path
+
+    from objstoreexplorer.webapp.tasks import WebTask, WebTaskManager
+
+    class _FM:
+        def __init__(self):
+            self.calls = 0
+
+        def upload_file(self, path, bucket, key):
+            self.calls += 1
+            return True, "ok"
+
+    class _Sess:
+        pass
+
+    sess = _Sess()
+    sess.file_manager = _FM()
+    fm = sess.file_manager
+    m = WebTaskManager()
+    task = WebTask("upload", "批量上传", total=3)
+
+    paused_evt = th.Event()
+    gate = {"first": True}
+    orig_up = fm.upload_file
+
+    def up(path, bucket, key):
+        r = orig_up(path, bucket, key)
+        if gate.pop("first", False):
+            task.pause()
+            paused_evt.set()  # 通知主线程: 暂停已生效
+            _t.sleep(0.05)    # 让 worker 走回循环顶进入暂停等待
+        return r
+
+    fm.upload_file = up
+
+    m.run_upload(task, sess, "bucket", "", [Path("a"), Path("b"), Path("c")])
+    assert paused_evt.wait(timeout=5), "第一个文件后应进入暂停"
+    _t.sleep(0.2)
+    assert task.paused and not task.is_finished
+    assert fm.calls == 1, "暂停期间不应继续上传下一个文件"
+    task.resume()
+    deadline = _t.monotonic() + 10
+    while task.status == "running" and _t.monotonic() < deadline:
+        _t.sleep(0.05)
+    assert task.status != "running", "恢复后任务应在超时前完成"
+    assert task.status == "done" and fm.calls == 3
+
+
+def test_task_pause_resume_endpoints(admin_client, monkeypatch):
+    """暂停/恢复路由: 归属校验同 cancel; manager 不支持时如实返回失败"""
+    from objstoreexplorer.webapp.state import get_state
+
+    class _T:
+        id = "t1"
+        owner = "someone"
+        kind = "upload"
+        status = "running"
+
+    class _M:
+        def __init__(self):
+            self.t = _T()
+            self.ops: list = []
+
+        def get(self, tid):
+            return self.t
+
+        def pause_task(self, tid):
+            self.ops.append(("pause", tid))
+            return True
+
+        def resume_task(self, tid):
+            self.ops.append(("resume", tid))
+            return True
+
+    m = _M()
+    real = get_state().tasks
+    get_state().tasks = m
+    try:
+        resp = admin_client.post("/api/tasks/t1/pause")
+        assert resp.status_code == 200 and resp.json()["success"] is True
+        resp = admin_client.post("/api/tasks/t1/resume")
+        assert resp.status_code == 200 and resp.json()["success"] is True
+        assert m.ops == [("pause", "t1"), ("resume", "t1")]
+
+        class _NoLive(_M):
+            def pause_task(self, tid):
+                return False
+
+        get_state().tasks = _NoLive()
+        resp = admin_client.post("/api/tasks/t1/pause")
+        body = resp.json()
+        assert resp.status_code == 200 and body["success"] is False
+        assert "不支持暂停" in body["message"]
+    finally:
+        get_state().tasks = real

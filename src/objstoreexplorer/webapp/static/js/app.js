@@ -264,13 +264,18 @@ OSE._renderTasks = async function () {
     box.innerHTML = tasks.map((t) => {
       const pct = Math.round((t.progress || 0) * 100);
       let badge = "";
-      if (t.status === "running") badge = '<span class="tag info task-badge">进行中</span>';
+      if (t.status === "running") badge = t.paused
+        ? '<span class="tag warn task-badge">已暂停</span>'
+        : '<span class="tag info task-badge">进行中</span>';
       else if (t.status === "done") badge = '<span class="tag ok task-badge">完成</span>';
       else if (t.status === "failed") badge = '<span class="tag err task-badge">失败</span>';
       else badge = '<span class="tag off task-badge">已取消</span>';
       let actions = "";
       if (t.status === "running")
-        actions = `<button class="btn sm" onclick="OSE.cancelTask('${t.id}')">取消</button>`;
+        actions = (t.paused
+          ? `<button class="btn sm" onclick="OSE.resumeTask('${t.id}')">恢复</button>`
+          : `<button class="btn sm" onclick="OSE.pauseTask('${t.id}')">暂停</button>`)
+          + `<button class="btn sm" onclick="OSE.cancelTask('${t.id}')">取消</button>`;
       else if (t.kind === "download_zip" && t.status === "done" && t.result_ready)
         actions = `<a class="btn sm primary" href="/api/tasks/${t.id}/result">下载 ZIP</a>`;
       let detail = "";
@@ -292,6 +297,16 @@ OSE._renderTasks = async function () {
 
 OSE.cancelTask = async function (id) {
   try { await OSE.post(`/api/tasks/${id}/cancel`, {}); OSE.toast("已请求取消", "info"); } catch (e) {}
+};
+
+OSE.pauseTask = async function (id) {
+  try { await OSE.post(`/api/tasks/${id}/pause`, {}); } catch (e) {}
+  OSE._renderTasks();
+};
+
+OSE.resumeTask = async function (id) {
+  try { await OSE.post(`/api/tasks/${id}/resume`, {}); } catch (e) {}
+  OSE._renderTasks();
 };
 
 OSE._startTaskPolling = function () {
