@@ -379,6 +379,21 @@ class SyncDialog(tk.Toplevel):
                 pass
 
         prog.set_cancel_hook(_cancel_hook)
+
+        def _pause_hook() -> None:
+            # 暂停所有在途任务 (文件 + 分片边界等待), 与 cancel_all 同粒度
+            try:
+                self.locator.transfer.pause_all()
+            except Exception:
+                pass
+
+        def _resume_hook() -> None:
+            try:
+                self.locator.transfer.resume_all()
+            except Exception:
+                pass
+
+        prog.set_pause_hooks(_pause_hook, _resume_hook)
         # "应用到所有" 的共享决策
         apply_to_all_box: dict = {}
         bridge.begin_task("同步")
@@ -538,6 +553,8 @@ class SyncProgressWindow(tk.Toplevel):
         self.transient(parent.winfo_toplevel() if isinstance(parent, tk.Widget) else parent)
         self._on_close = on_close
         self._cancel_hook: Optional[Callable] = None
+        self._pause_hook: Optional[Callable] = None
+        self._resume_hook: Optional[Callable] = None
         self._done = False
 
         BG = Neutral.BG_PANEL
@@ -571,6 +588,12 @@ class SyncProgressWindow(tk.Toplevel):
             btn_frame, "取消同步", self._on_cancel, icon="ban", width=10,
         )
         self._cancel_btn.pack(side=tk.RIGHT)
+        # 暂停/恢复 (Pail 借鉴): 与取消并列; 窗口只维护 UI 态, 真值在 TransferTask
+        self._pause_btn = create_secondary_button(
+            btn_frame, "暂停", self._on_pause_toggle, width=8,
+        )
+        self._pause_btn.pack(side=tk.RIGHT, padx=(0, Space.SM))
+        self._paused_ui = False
 
         # 居中
         try:
@@ -584,6 +607,31 @@ class SyncProgressWindow(tk.Toplevel):
 
     def set_cancel_hook(self, hook: Callable) -> None:
         self._cancel_hook = hook
+
+    def set_pause_hooks(self, on_pause: Callable, on_resume: Callable) -> None:
+        """设置暂停/恢复回调; 按钮文案按窗口 UI 态切换 (真值在 TransferTask)"""
+        self._pause_hook = on_pause
+        self._resume_hook = on_resume
+
+    def _on_pause_toggle(self) -> None:
+        hook = self._resume_hook if self._paused_ui else self._pause_hook
+        try:
+            self._pause_btn.config(
+                text="恢复" if not self._paused_ui else "暂停",
+                state=tk.DISABLED,
+            )
+        except tk.TclError:
+            return
+        self._paused_ui = not self._paused_ui
+        if hook is not None:
+            try:
+                hook()
+            except Exception:
+                pass
+        try:
+            self._pause_btn.config(state=tk.NORMAL)
+        except tk.TclError:
+            pass
 
     def update_progress(self, current: int, total: int, name: str) -> None:
         """主线程: 刷新进度 (由 threading_bridge 调用)"""
@@ -624,6 +672,7 @@ class SyncProgressWindow(tk.Toplevel):
             )
             self._pct.config(text="")
             self._cancel_btn.config(text="关闭", command=self.destroy, state=tk.NORMAL)
+            self._pause_btn.config(state=tk.DISABLED)
         except tk.TclError:
             pass
 

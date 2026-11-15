@@ -244,6 +244,19 @@ class TransferService:
                 if not task.is_completed():
                     task.cancel()
 
+    def pause_all(self) -> None:
+        """暂停所有未完成任务 (同步进度窗口「暂停」); 与 cancel_all 同粒度"""
+        with self._lock:
+            for task in list(self._tasks.values()):
+                if not task.is_completed():
+                    task.pause()
+
+    def resume_all(self) -> None:
+        """恢复所有被暂停的任务 (cancel 优先于 pause: 已取消的不受影响)"""
+        with self._lock:
+            for task in list(self._tasks.values()):
+                task.resume()
+
     def _reset_cancel(self) -> None:
         self._cancelled_all.clear()
 

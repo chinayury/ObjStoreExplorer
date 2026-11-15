@@ -275,6 +275,31 @@ def test_transfer_service_pause_resume_api():
         svc.cleanup()
 
 
+def test_transfer_service_pause_all_resume_all():
+    """pause_all 只暂停未完成任务; resume_all 清除全部暂停 (取消优先)"""
+    from objstoreexplorer.services.transfer_service import TransferService, TransferTask
+
+    svc = TransferService(locator=None)
+    try:
+        t1 = TransferTask("upload", "b", "k1", "p1")
+        t2 = TransferTask("download", "b", "k2", "p2")
+        done = TransferTask("upload", "b", "k3", "p3")
+        done.mark_done()
+        svc._register(t1)
+        svc._register(t2)
+        svc._register(done)
+
+        svc.pause_all()
+        assert t1.is_paused() and t2.is_paused() and not done.is_paused()
+
+        t1.cancel()  # 取消优先于暂停
+        svc.resume_all()
+        assert not t1.is_paused() and not t2.is_paused()
+        assert t1.is_cancelled() and not t2.is_cancelled()
+    finally:
+        svc.cleanup()
+
+
 def test_webtask_pause_resume_in_run_upload():
     """Web 上传任务: 文件边界暂停 -> 恢复 -> 全部完成"""
     import threading as th
