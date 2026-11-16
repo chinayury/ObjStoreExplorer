@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from ..config.settings import TEMP_DIR
+from ..core.file_manager import download_verified
 from ..core.validators import sanitize_filename
 from ..utils.thread_pool import get_thread_pool
 
@@ -401,7 +402,7 @@ class WebTaskManager:
                         _progress(i + 1, task.total, key)
                         self._sync(task)
                         continue
-                    ok, msg = fm.download_file(bucket, key, str(dest))
+                    ok, msg = download_verified(fm, bucket, key, str(dest))
                     task.details.append(
                         {"key": key, "success": ok, "message": msg}
                     )

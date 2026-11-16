@@ -44,6 +44,7 @@ from ..config.exceptions import (
     NetworkTimeoutError,
     ServerUnavailableError,
 )
+from ..core.file_manager import download_verified
 
 
 # ==================== 可调参数 ====================
@@ -705,7 +706,8 @@ class TransferService:
                  for k in keys]
 
         def invoke(item: str, task: TransferTask, fm) -> Tuple[bool, str]:
-            return fm.download_file(
+            return download_verified(
+                fm,
                 bucket=bucket, key=item, save_path=task.local_path,
                 progress=lambda p, t=task: t.update_progress(p),
             )
@@ -743,7 +745,8 @@ class TransferService:
 
         def invoke(item: Tuple[str, str], task: TransferTask,
                    fm) -> Tuple[bool, str]:
-            return fm.download_file(
+            return download_verified(
+                fm,
                 bucket=bucket, key=item[0], save_path=item[1],
                 progress=lambda p, t=task: t.update_progress(p),
             )

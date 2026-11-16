@@ -671,3 +671,61 @@ class FileManager:
         """检查对象是否存在"""
         ok, _ = self._client.stat_object(bucket, key)
         return ok
+
+
+# ==================== 下载暂存校验 (桌面/Web 共用) ====================
+
+def _silent_remove(path: str) -> None:
+    """尽力删除暂存文件 (不存在/占用时静默忽略, 不掩盖主流程结果)"""
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def download_verified(
+    fm: "FileManager",
+    bucket: str,
+    key: str,
+    save_path: str,
+    progress: ProgressFn = None,
+) -> Tuple[bool, str]:
+    """先下到 ``save_path + ".part"`` 暂存, 校验大小后原子替换 (Pail 借鉴:
+    下载先校验再替换; 2026-11-16 每周维护第四轮)。
+
+    - 下载失败/中断/校验不通过: 删除 .part, **目标文件保持原样**——
+      旧内容不会被半成品覆盖, 目标目录不会残留半截文件;
+    - stat 拿不到期望大小 (接口不可用) 时退化为「暂存 + 原子替换」,
+      不做大小断言, 不因校验不可用而拒绝下载;
+    - 校验通过才 os.replace 到位 (同盘原子, 不会出现替换到一半)。
+    """
+    part_path = save_path + ".part"
+    _silent_remove(part_path)  # 上次中断的残留 (幂等)
+
+    ok, msg = fm.download_file(bucket, key, part_path, progress)
+    if not ok:
+        _silent_remove(part_path)
+        return False, msg
+
+    ok_stat, info = fm.stat_object(bucket, key)
+    if ok_stat and isinstance(info, dict):
+        expected = info.get("size")
+        if expected is not None:
+            try:
+                actual = os.path.getsize(part_path)
+            except OSError as e:
+                _silent_remove(part_path)
+                return False, f"暂存文件读取失败: {e}"
+            if actual != int(expected):
+                _silent_remove(part_path)
+                return False, (
+                    f"下载校验失败: 期望 {expected} 字节, 实际 {actual} 字节 "
+                    f"(未替换目标文件, 请重试)"
+                )
+
+    try:
+        os.replace(part_path, save_path)
+    except OSError as e:
+        _silent_remove(part_path)
+        return False, f"替换目标文件失败: {e}"
+    return True, "下载成功 (已校验)"

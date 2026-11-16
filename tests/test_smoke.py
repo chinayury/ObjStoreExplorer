@@ -300,6 +300,79 @@ def test_transfer_service_pause_all_resume_all():
         svc.cleanup()
 
 
+# ==================== 下载先校验再替换 ====================
+
+
+class _FakeFM:
+    """download_verified 的测试替身: 可配置落盘内容与 stat 结果"""
+
+    def __init__(self, payload: bytes = b"hello", stat_size=None, fail=False):
+        self.payload = payload
+        self.stat_size = stat_size
+        self.fail = fail
+        self.saved_to: list = []
+
+    def download_file(self, bucket, key, save_path, progress=None):
+        self.saved_to.append(save_path)
+        if self.fail:
+            return False, "模拟下载失败"
+        with open(save_path, "wb") as f:
+            f.write(self.payload)
+        return True, "ok"
+
+    def stat_object(self, bucket, key):
+        if self.stat_size is None:
+            return False, "无 stat"
+        return True, {"size": self.stat_size}
+
+
+def test_download_verified_success_and_atomic_replace(tmp_path):
+    """校验通过: .part 原子替换到位, 目录无残留"""
+    from objstoreexplorer.core.file_manager import download_verified
+
+    fm = _FakeFM(payload=b"hello", stat_size=5)
+    dest = tmp_path / "a.txt"
+    ok, msg = download_verified(fm, "bucket", "k", str(dest))
+    assert ok and dest.read_bytes() == b"hello"
+    assert not (tmp_path / "a.txt.part").exists()
+    assert fm.saved_to[0].endswith("a.txt.part"), "必须先落 .part 暂存"
+
+
+def test_download_verified_size_mismatch_keeps_old_file(tmp_path):
+    """校验失败: 旧目标文件不被半成品覆盖, .part 清除"""
+    from objstoreexplorer.core.file_manager import download_verified
+
+    dest = tmp_path / "a.txt"
+    dest.write_bytes(b"OLD")
+    fm = _FakeFM(payload=b"half-writ", stat_size=100)
+    ok, msg = download_verified(fm, "bucket", "k", str(dest))
+    assert not ok
+    assert "校验失败" in msg
+    assert dest.read_bytes() == b"OLD", "旧内容必须原样保留"
+    assert not (tmp_path / "a.txt.part").exists()
+
+
+def test_download_verified_download_failure_cleans_part(tmp_path):
+    """下载失败: 返回失败消息, 目标文件与目录不留 .part"""
+    from objstoreexplorer.core.file_manager import download_verified
+
+    fm = _FakeFM(fail=True)
+    dest = tmp_path / "a.txt"
+    ok, msg = download_verified(fm, "bucket", "k", str(dest))
+    assert not ok and "模拟下载失败" in msg
+    assert not dest.exists() and not (tmp_path / "a.txt.part").exists()
+
+
+def test_download_verified_without_stat_still_replaces(tmp_path):
+    """stat 不可用: 退化为暂存+原子替换, 不拒绝下载"""
+    from objstoreexplorer.core.file_manager import download_verified
+
+    fm = _FakeFM(payload=b"data", stat_size=None)
+    dest = tmp_path / "a.txt"
+    ok, msg = download_verified(fm, "bucket", "k", str(dest))
+    assert ok and dest.read_bytes() == b"data"
+
+
 def test_webtask_pause_resume_in_run_upload():
     """Web 上传任务: 文件边界暂停 -> 恢复 -> 全部完成"""
     import threading as th
