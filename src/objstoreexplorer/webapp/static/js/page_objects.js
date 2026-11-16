@@ -358,6 +358,9 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     const fd = new FormData();
     fd.append("bucket", S.bucket);
     fd.append("prefix", S.prefix);
+    // 同名冲突策略 (v0.5.0): 覆盖(默认, 与旧行为一致) / 跳过 / 重命名
+    const conflictSel = document.getElementById("obj-conflict-select");
+    fd.append("conflict", conflictSel ? conflictSel.value : "overwrite");
     const rels = [];
     let structured = false;
     for (const it of items) {

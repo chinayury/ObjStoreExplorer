@@ -288,6 +288,49 @@ class WebTaskManager:
         while task.paused and not self._should_stop(task):
             time.sleep(0.1)
 
+    # ==================== 同名冲突策略 (Pail 借鉴 #4) ====================
+
+    def _apply_conflict(self, fm, bucket: str, key: str, conflict: str,
+                        task: WebTask, rel: str) -> Optional[str]:
+        """上传前同名冲突检查点 (overwrite 策略不经过此函数)。
+
+        返回实际上传 key; skip 命中已存在时记明细并返回 None (调用方跳过)。
+        rename 命中时换 name(n).ext 首个空闲名。存在性检查不可用时按原
+        行为 (覆盖) 上传——检查点故障不拒绝上传, 如实降级。
+        """
+        try:
+            exists = fm.exists(bucket, key)
+        except Exception:
+            logger.debug(
+                "冲突检查点 exists 调用失败, 按覆盖处理 (task=%s key=%s)",
+                task.id, key, exc_info=True)
+            return key
+        if not exists:
+            return key
+        if conflict == "skip":
+            task.details.append({"file": rel, "key": key, "success": True,
+                                 "message": "已存在, 按策略跳过 (未上传)"})
+            return None
+        if conflict == "rename":
+            return self._renamed_key(fm, bucket, key)
+        return key  # 未知策略兜底: 与 overwrite 一致
+
+    @staticmethod
+    def _renamed_key(fm, bucket: str, key: str) -> str:
+        """找首个空闲的 name(1).ext / name(2).ext… (与本地暂存去重同约定);
+        连续 100 次撞名则退回原 key (覆盖语义兜底, 不死循环)"""
+        head, sep, last = key.rpartition("/")
+        stem, dot, ext = last.rpartition(".")
+        for n in range(1, 101):
+            cand_last = f"{stem}({n}){dot}{ext}" if dot else f"{last}({n})"
+            cand = f"{head}{sep}{cand_last}" if sep else cand_last
+            try:
+                if not fm.exists(bucket, cand):
+                    return cand
+            except Exception:
+                break
+        return key
+
     # ==================== 任务执行 ====================
 
     def run_upload(
@@ -298,11 +341,14 @@ class WebTaskManager:
         prefix: str,
         file_paths: List[Path],
         rel_paths: Optional[List[str]] = None,
+        conflict: str = "overwrite",
     ) -> None:
         """后台执行批量上传 (串行逐个, 进度按文件计数)
 
         rel_paths: 与 file_paths 等长的对象 key 相对路径列表 (文件夹结构上传);
         为 None 时保持旧行为, 按暂存文件名平铺入桶。
+        conflict: 同名冲突策略 (v0.5.0, Pail 借鉴 #4) —— overwrite=直接覆盖
+        (默认, 与历史行为一致) / skip=已存在则跳过 / rename=自动加 (n) 后缀。
         """
 
         def _progress(cur: int, total: int, name: str) -> None:
@@ -319,6 +365,13 @@ class WebTaskManager:
                         break
                     rel = rel_paths[i] if rel_paths and i < len(rel_paths) else fp.name
                     key = f"{prefix_norm}{rel}".replace(os.sep, "/")
+                    if conflict != "overwrite":
+                        key = self._apply_conflict(fm, bucket, key, conflict,
+                                                   task, rel)
+                        if key is None:  # skip: 已存在, 记明细后继续下一个
+                            _progress(i + 1, task.total, rel)
+                            self._sync(task)
+                            continue
                     ok, msg = fm.upload_file(str(fp), bucket, key)
                     task.details.append(
                         {"file": rel, "key": key, "success": ok, "message": msg}

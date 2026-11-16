@@ -32,6 +32,11 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     <input type="file" id="obj-file-input" multiple style="display:none">
     <button class="btn" onclick="Objects.pickFolder()"><svg class="ic"><use href="#i-folder"/></svg>上传文件夹</button>
     <input type="file" id="obj-folder-input" multiple webkitdirectory style="display:none">
+    <select id="obj-conflict-select" title="上传同名冲突处理策略">
+      <option value="overwrite" selected>同名覆盖</option>
+      <option value="skip">跳过已存在</option>
+      <option value="rename">自动重命名</option>
+    </select>
     <button class="btn" onclick="Objects.newFolder()"><svg class="ic"><use href="#i-plus"/></svg>新建文件夹</button>
     <div class="sep"></div>
     <button class="btn" onclick="Objects.clip('copy')"><svg class="ic"><use href="#i-copy"/></svg>复制</button>

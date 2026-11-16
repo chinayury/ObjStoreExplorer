@@ -354,6 +354,7 @@ def api_upload(request: Request,
                      bucket: str = Form(...),
                      prefix: str = Form(""),
                      paths: Optional[List[str]] = Form(None),
+                     conflict: str = Form("overwrite"),
                      files: List[UploadFile] = File(...)):
     """批量上传: multipart 落盘 → 后台任务 → 返回 task_id
 
@@ -369,6 +370,9 @@ def api_upload(request: Request,
     sess = get_web_session(request)
     if not files:
         raise _APIException(400, "未选择文件")
+    # 同名冲突策略 (v0.5.0, Pail 借鉴 #4): overwrite=现行为(默认兼容) / skip / rename
+    if conflict not in ("overwrite", "skip", "rename"):
+        raise _APIException(400, "conflict 只支持 overwrite / skip / rename")
 
     # 文件夹结构上传: 前端按 files 顺序传同名 index 的相对路径, 可选
     rel_paths: Optional[List[str]] = None
@@ -454,7 +458,8 @@ def api_upload(request: Request,
     task = WebTask("upload", f"上传 {len(dest_files)} 个文件 → {bucket}", total=len(dest_files),
                    owner=sid)
     state.tasks.register(task, workdir)
-    state.tasks.run_upload(task, sess, bucket, prefix, dest_files, rel_paths=rel_paths)
+    state.tasks.run_upload(task, sess, bucket, prefix, dest_files,
+                           rel_paths=rel_paths, conflict=conflict)
     _log(sess, "upload", f"{bucket}/{prefix} x{len(dest_files)}", True, "已提交上传任务")
     return {"success": True, "message": "上传任务已提交", "data": {"task_id": task.id}}
 

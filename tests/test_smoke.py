@@ -373,6 +373,78 @@ def test_download_verified_without_stat_still_replaces(tmp_path):
     assert ok and dest.read_bytes() == b"data"
 
 
+# ==================== 上传同名冲突策略 (skip / rename / overwrite) ====================
+
+
+class _ConflictFM:
+    """run_upload 冲突策略测试替身: exists 可配置, upload_file 记录调用"""
+
+    def __init__(self, existing=()):
+        self.existing = set(existing)
+        self.uploaded: list = []
+
+    def exists(self, bucket, key):
+        return key in self.existing
+
+    def upload_file(self, path, bucket, key):
+        self.uploaded.append(key)
+        return True, "ok"
+
+
+def _run_conflict_upload(conflict: str, existing=()):
+    """跑一个 2 文件上传任务 (a.txt, b.txt), 返回 (fm, task)"""
+    import time as _t
+    from pathlib import Path
+
+    from objstoreexplorer.webapp.tasks import WebTask, WebTaskManager
+
+    class _Sess:
+        pass
+
+    sess = _Sess()
+    sess.file_manager = _ConflictFM(existing)
+    m = WebTaskManager()
+    task = WebTask("upload", "冲突上传", total=2)
+    m.run_upload(task, sess, "bucket", "",
+                 [Path("a.txt"), Path("b.txt")], conflict=conflict)
+    deadline = _t.monotonic() + 10
+    while task.status == "running" and _t.monotonic() < deadline:
+        _t.sleep(0.05)
+    return sess.file_manager, task
+
+
+def test_upload_conflict_skip_existing():
+    fm, task = _run_conflict_upload("skip", existing={"a.txt"})
+    assert task.status == "done"
+    assert fm.uploaded == ["b.txt"], "已存在的文件不应上传"
+    d = next(x for x in task.details if x["key"] == "a.txt")
+    assert d["success"] is True and "跳过" in d["message"]
+
+
+def test_upload_conflict_rename_existing():
+    fm, task = _run_conflict_upload("rename", existing={"a.txt"})
+    assert task.status == "done"
+    assert fm.uploaded == ["a(1).txt", "b.txt"], "重命名应找首个空闲 name(n).ext"
+
+
+def test_upload_conflict_overwrite_is_default():
+    """默认/未知策略与历史行为一致: 直接覆盖, 不查存在性"""
+    fm, task = _run_conflict_upload("overwrite", existing={"a.txt", "b.txt"})
+    assert task.status == "done"
+    assert fm.uploaded == ["a.txt", "b.txt"]
+
+
+def test_upload_endpoint_rejects_bad_conflict(admin_client):
+    """conflict 参数白名单校验: 非法值 400 且不产生任务"""
+    resp = admin_client.post(
+        "/api/objects/upload",
+        data={"bucket": "some-bucket", "prefix": "", "conflict": "bogus"},
+        files={"files": ("a.txt", b"x")},
+    )
+    assert resp.status_code == 400
+    assert "conflict" in str(resp.json())
+
+
 def test_webtask_pause_resume_in_run_upload():
     """Web 上传任务: 文件边界暂停 -> 恢复 -> 全部完成"""
     import threading as th
