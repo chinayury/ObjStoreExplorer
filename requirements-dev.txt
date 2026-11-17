@@ -3,6 +3,8 @@
 -r requirements-web.txt
 
 # 测试框架
-pytest>=8.0,<9.0
+# pytest>=9.0.3: PYSEC-2026-1845 (8.x 系列全部命中, 修复版在 9.0.3 ——
+# 旧上界 <9.0 恰好把修复版挡在门外, 与 docs/04 §7 记录的 Pillow 教训同型)
+pytest>=9.0.3,<10.0
 # FastAPI TestClient 依赖
 httpx>=0.27,<1.0

@@ -33,7 +33,7 @@
 
 ## 两条必须知道的约定
 
-1. **版本号唯一真源**是 `src/objstoreexplorer/config/settings.py` 的 `APP_VERSION`，当前值 `0.6.0`。
+1. **版本号唯一真源**是 `src/objstoreexplorer/config/settings.py` 的 `APP_VERSION`，当前值 `0.6.1`。
    包级 `__init__.py` 与 `webapp/__init__.py` 均为其转发；`docker-compose.yml` 镜像标签已参数化
    （`OSE_IMAGE_TAG`，默认 `latest`），不随版本硬编码。
 2. **安全口径**：桌面版是纯本地应用、不监听端口，说明覆盖**本地攻击面防护**；

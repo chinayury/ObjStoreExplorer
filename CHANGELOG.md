@@ -4,6 +4,34 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [v0.6.1 · 每周维护第七轮] — 2026-11-19 · 依赖巡检与打包元数据迁移
+
+> 每周维护循环第七轮。开放 Issues 巡检：0 条待处置；调研与 docs/06 基线去重，间隔 1 天
+> 无增量复核（如实记录）。**运行时依赖 pip-audit 全部干净**；本轮修复集中在开发/打包侧。
+> ⚠ 测试服务器 SSH 22 超时第五天（服务器与 Web 服务存活，旧版继续服务），部署仍 pending。
+
+### 🐛 Fixed
+
+- **pytest 上界挡住安全修复版**（docs/04 §7 记录过的教训第二次复现）：
+  `requirements-dev.txt` 旧钉法 `pytest>=8.0,<9.0` 把 PYSEC-2026-1845 的修复版 9.0.3
+  挡在门外 —— 钉法改为 `pytest>=9.0.3,<10.0` 并注明 CVE；33 项冒烟在 pytest 9.2.0 下
+  全绿（大版本升级无破坏）。
+- **pyproject 打包元数据弃用项迁移**（setuptools 警告，2027-02-18 截止）：
+  `license` 由 TOML 表改为 SPDX 表达式 `license = "AGPL-3.0-or-later"`，显式
+  `license-files = ["LICENSE.md", "NOTICE"]`，移除已弃用的 License classifier，
+  构建下界提至 `setuptools>=77`。wheel 元数据由 `License:` 变为
+  `License-Expression:`（语义等价），许可文件清单不变；GitHub 许可证识别只看
+  LICENSE.md 文件内容，不受影响。
+
+### 🔄 Changed
+
+- 本机/CI 工具链 pip 升至 26.3（PYSEC-2026-3721，pip 不入任何产物、CI 一直自升级，
+  属环境卫生项）；editable 安装元数据刷新（此前 dist-info 停在 0.1.0，仅外观）。
+- 本轮曾评估「worker 重启时把遗留 running 行标 failed」：多 worker 下会误伤其他
+  存活 worker 的在途任务，现有 24h purge 已兜底 —— 不实施，如实记录（docs/06 §四）。
+
+---
+
 ## [v0.6.0 · 每周维护第六轮] — 2026-11-18 · 跨 worker 暂停
 
 > 每周维护循环第六轮。开放 Issues 巡检：0 条待处置；调研对 9 个候选增量复核（仅日常

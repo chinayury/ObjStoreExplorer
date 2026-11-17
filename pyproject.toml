@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,13 +8,16 @@ dynamic = ["version"]
 description = "MinIO/S3 兼容对象存储管理工具 (Tkinter 桌面版 + FastAPI Web 容器版)"
 readme = "README.md"
 requires-python = ">=3.13"
-license = { text = "AGPL-3.0-or-later" }
+# SPDX 表达式 + license-files (setuptools>=77): 旧的 license TOML 表与
+# License classifier 已弃用 (2027-02-18 截止)。GitHub 许可证识别只看
+# LICENSE.md 文件内容, 此处仅影响 wheel 元数据。
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE.md", "NOTICE"]
 authors = [{ name = "智维ITMSKY", email = "41469858@qq.com" }]
 keywords = ["minio", "s3", "object-storage", "storage-manager", "tkinter", "fastapi"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
-    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Operating System :: OS Independent",
     "Topic :: System :: Systems Administration",
 ]
