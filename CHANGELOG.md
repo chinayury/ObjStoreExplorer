@@ -4,6 +4,32 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [v0.6.0 · 每周维护第六轮] — 2026-11-18 · 跨 worker 暂停
+
+> 每周维护循环第六轮。开放 Issues 巡检：0 条待处置；调研对 9 个候选增量复核（仅日常
+> star/推送波动，无新增借鉴点，见 [docs/06](docs/06-同类项目调研与借鉴.md) §四）。
+> ⚠ 测试服务器 SSH 22 超时进入第三天（服务器与 Web 服务存活，旧版继续服务），部署仍 pending。
+
+### 🆕 Added
+
+- **跨 worker 暂停 / 恢复**（Pail 借鉴 #1 第三批，与 cancel 同架构）：
+  - `web_tasks` 表新增 `pause_requested` 标志列（`CREATE TABLE` + 旧库幂等
+    `ALTER TABLE` 轻量迁移），持久层新增 `request_task_pause / request_task_resume /
+    is_task_pause_requested`；
+  - 任务管理器 `pause_task / resume_task` 对**跨 worker 只读视图**同样生效（经 DB 标志，
+    执行方轮询后自行暂停/恢复），任务列表从其他节点也能看到「已暂停」状态；
+  - 执行线程以**独立 0.5s 短窗口**同步暂停标志（与取消的 2s 窗口分离——文件边界检查点
+    若复用 2s 节流，快文件场景下暂停请求永远撞在节流窗里无法生效，本轮测试实测暴露）；
+  - 恢复是可逆开关（UPDATE 清零），不用取消那样的 MAX 粘性写法。
+- 冒烟测试 +3（持久层标志往返 / TaskView 跨 worker 暂停 / 执行线程尊重 DB 请求），共 33 项全绿。
+
+### 🔄 Changed
+
+- v0.3.0 起的已知限制「暂停不跨 worker」**就此解除**；docs/03 任务面板说明同步更新。
+- `docs/06` 要点 #1 状态更新为三批落地；调研增量复核结论记录。
+
+---
+
 ## [v0.5.0 · 每周维护第五轮] — 2026-11-17 · Web 上传同名冲突策略
 
 > 每周维护循环第五轮。开放 Issues 巡检：0 条待处置；调研与 docs/06 基线去重，本轮无新调研

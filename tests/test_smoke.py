@@ -445,6 +445,108 @@ def test_upload_endpoint_rejects_bad_conflict(admin_client):
     assert "conflict" in str(resp.json())
 
 
+# ==================== 跨 worker 暂停 (pause 落库, 与 cancel 同架构) ====================
+
+
+def _make_store(tmp_path):
+    from objstoreexplorer.webapp.persist import WebStateStore
+
+    return WebStateStore(db_path=tmp_path / "web.db")
+
+
+def _task_row(task_id: str = "t-pause") -> dict:
+    return {
+        "id": task_id, "owner_sid": "s1", "kind": "upload", "label": "x",
+        "status": "running", "total": 1, "current": 0, "current_name": "",
+        "error": "", "details": "[]", "cancel_requested": 0,
+        "result_path": "", "result_name": "", "created_at": 1.0,
+        "finished_at": None,
+    }
+
+
+def test_persist_pause_flag_roundtrip(tmp_path):
+    """pause_requested 落库往返: 请求暂停 -> True; 请求恢复 -> False"""
+    from objstoreexplorer.webapp.persist import WebStateStore
+
+    store = _make_store(tmp_path)
+    store.upsert_task(_task_row())
+    assert store.is_task_pause_requested("t-pause") is False
+    store.request_task_pause("t-pause")
+    assert store.is_task_pause_requested("t-pause") is True
+    store.request_task_resume("t-pause")
+    assert store.is_task_pause_requested("t-pause") is False
+
+
+def test_taskview_pause_resume_via_db(tmp_path):
+    """跨 worker 视图 (TaskView) 的暂停/恢复: 经 DB 标志生效并透出 paused"""
+    from objstoreexplorer.webapp.tasks import WebTaskManager
+
+    store = _make_store(tmp_path)
+    store.upsert_task(_task_row("t-view"))
+
+    worker_b = WebTaskManager(temp_root=tmp_path / "t2", persist=store)
+    view = worker_b.get("t-view")
+    from objstoreexplorer.webapp.tasks import WebTask as _WT
+    assert view is not None and not isinstance(view, _WT), "另一 worker 应拿到只读视图"
+    assert view.to_dict()["paused"] is False
+    assert worker_b.pause_task("t-view") is True, "跨 worker 视图暂停应经 DB 生效"
+    assert store.is_task_pause_requested("t-view") is True
+    refetched = worker_b.get("t-view")
+    assert refetched.to_dict()["paused"] is True
+    assert worker_b.resume_task("t-view") is True
+    assert store.is_task_pause_requested("t-view") is False
+
+
+def test_webtask_honors_db_pause_request(tmp_path):
+    """执行线程尊重 DB 暂停请求: 轮询到后暂停, 恢复请求后继续完成"""
+    import time as _t
+    from pathlib import Path
+
+    from objstoreexplorer.webapp.tasks import WebTask, WebTaskManager
+
+    class _FM:
+        def __init__(self):
+            self.calls = 0
+
+        def upload_file(self, path, bucket, key):
+            self.calls += 1
+            return True, "ok"
+
+    class _Sess:
+        pass
+
+    sess = _Sess()
+    sess.file_manager = _FM()
+    fm = sess.file_manager
+    store = _make_store(tmp_path)
+    m = WebTaskManager(temp_root=tmp_path / "t3", persist=store)
+    task = WebTask("upload", "跨 worker 暂停", total=2, owner="s1")
+    m.register(task)
+
+    gate = {"first": True}
+    orig_up = fm.upload_file  # 先捕获原方法, 再替换实例属性 (防递归)
+
+    def up(path, bucket, key):
+        r = orig_up(path, bucket, key)
+        if gate.pop("first", False):
+            store.request_task_pause(task.id)  # 模拟另一 worker 发起暂停
+        return r
+
+    sess.file_manager.upload_file = up
+
+    m.run_upload(task, sess, "bucket", "", [Path("a"), Path("b")])
+    deadline = _t.monotonic() + 8
+    while not task.paused and _t.monotonic() < deadline:
+        _t.sleep(0.1)
+    assert task.paused, "轮询周期 (2s) 内应感知跨 worker 暂停请求"
+    assert fm.calls == 1
+    store.request_task_resume(task.id)
+    deadline = _t.monotonic() + 10
+    while task.status == "running" and _t.monotonic() < deadline:
+        _t.sleep(0.1)
+    assert task.status == "done" and fm.calls == 2
+
+
 def test_webtask_pause_resume_in_run_upload():
     """Web 上传任务: 文件边界暂停 -> 恢复 -> 全部完成"""
     import threading as th

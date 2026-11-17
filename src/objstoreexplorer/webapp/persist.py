@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS web_tasks (
     error TEXT NOT NULL DEFAULT '',
     details TEXT NOT NULL DEFAULT '[]',
     cancel_requested INTEGER NOT NULL DEFAULT 0,
+    pause_requested INTEGER NOT NULL DEFAULT 0,
     result_path TEXT NOT NULL DEFAULT '',
     result_name TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL DEFAULT 0,
@@ -123,7 +124,7 @@ class WebStateStore:
         return conn
 
     def _init_db(self) -> None:
-        """建表 + 开 WAL (幂等, N 个 worker 同时执行安全)"""
+        """建表 + 开 WAL + 轻量迁移 (幂等, N 个 worker 同时执行安全)"""
         with self._lock:
             conn = self._open(self.db_path)
             try:
@@ -131,7 +132,15 @@ class WebStateStore:
                 conn.execute("PRAGMA journal_mode=WAL")
                 conn.execute("PRAGMA synchronous=NORMAL")
                 conn.executescript(_INIT_SQL)
-                conn.commit()
+                # 迁移: 旧库没有 pause_requested 列 (v0.6.0 跨 worker 暂停)。
+                # 新库由 _INIT_SQL 建列, ALTER 报 duplicate column 忽略即可。
+                try:
+                    conn.execute(
+                        "ALTER TABLE web_tasks ADD COLUMN "
+                        "pause_requested INTEGER NOT NULL DEFAULT 0")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass  # 列已存在
             except sqlite3.Error as e:
                 raise _wrap_locked(e) from e
             finally:
@@ -336,6 +345,28 @@ class WebStateStore:
             return False
         row = self.get_task(task_id)
         return bool(row and row["cancel_requested"])
+
+    def request_task_pause(self, task_id: str) -> None:
+        """跨 worker 暂停请求: 置 pause_requested, 执行方轮询到后自行暂停"""
+        if not task_id:
+            return
+        self._run(self.db_path, self._lock, lambda conn: conn.execute(
+            "UPDATE web_tasks SET pause_requested = 1 WHERE id = ?", (task_id,),
+        ))
+
+    def request_task_resume(self, task_id: str) -> None:
+        """跨 worker 恢复请求: 清 pause_requested (恢复是可逆开关, 不用 MAX 粘性)"""
+        if not task_id:
+            return
+        self._run(self.db_path, self._lock, lambda conn: conn.execute(
+            "UPDATE web_tasks SET pause_requested = 0 WHERE id = ?", (task_id,),
+        ))
+
+    def is_task_pause_requested(self, task_id: str) -> bool:
+        if not task_id:
+            return False
+        row = self.get_task(task_id)
+        return bool(row and row["pause_requested"])
 
     def purge_tasks(self, result_ttl_seconds: int, stale_running_seconds: int) -> int:
         """清理任务行: 完成/取消且超 TTL 的 + 长时间无进展的 running 孤儿行

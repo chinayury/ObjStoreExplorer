@@ -44,6 +44,8 @@ RESULT_TTL_SECONDS = 900  # 任务结果 (zip) 保留 15 分钟
 TEMP_SESSION_PREFIX = "web_"
 # 跨 worker 取消标志的轮询间隔 (执行线程查 DB 的节流)
 CANCEL_POLL_SECONDS = 2.0
+# 跨 worker 暂停/恢复标志的轮询间隔 (独立短窗口, 见 _sync_pause_flag)
+PAUSE_POLL_SECONDS = 0.5
 # DB 里每个任务保留的明细条数 (与 to_dict 回传口径一致)
 _DB_DETAILS_KEEP = 20
 
@@ -140,7 +142,7 @@ class TaskView:
     """跨 worker 只读任务视图 (由 web_tasks 行构造)
 
     与 WebTask 的路由面兼容: id/owner/kind/status/result_file/result_name/
-    to_dict()/cancel()。字段变更只能经 DB (cancel 置 cancel_requested)。
+    to_dict()/cancel()/pause/resume (v0.6.0 起经 DB 标志跨 worker 生效)。
     """
 
     def __init__(self, row: Dict[str, Any], persist=None):
@@ -186,7 +188,7 @@ class TaskView:
             "current": current,
             "current_name": self._row["current_name"] or "",
             "progress": round(current / total, 4) if total else 0.0,
-            "paused": False,  # 跨 worker 只读视图不承载暂停态 (暂停仅在执行 worker 内存)
+            "paused": bool(self._row["pause_requested"]),  # v0.6.0: 跨 worker 暂停态落库透出
             "error": self._row["error"] or "",
             "details": details,
             "failure_count": sum(1 for d in details if not d.get("success")),
@@ -204,7 +206,8 @@ class WebTaskManager:
         self._executor = get_thread_pool()
         self._temp_root = Path(temp_root) if temp_root else TEMP_DIR
         self._persist = persist
-        self._cancel_poll_at: Dict[str, float] = {}  # task.id -> 上次查 DB 时刻
+        self._cancel_poll_at: Dict[str, float] = {}  # task.id -> 上次查 DB 取消标志时刻
+        self._pause_poll_at: Dict[str, float] = {}  # task.id -> 上次查 DB 暂停标志时刻
 
     # ==================== 临时目录 ====================
 
@@ -283,9 +286,33 @@ class WebTaskManager:
             pass
         return False
 
+    def _sync_pause_flag(self, task: WebTask, force: bool = False) -> None:
+        """从 DB 同步跨 worker 暂停/恢复标志到本地事件 (独立 0.5s 节流)
+
+        独立于取消的 2s 节流窗口: 暂停等待是 0.1s 量子循环, 若复用 2s 节流,
+        每个文件都快于 2s 完成时检查点永远撞在节流窗里, 跨 worker 暂停将
+        永远不生效 (2026-11-18 测试实测暴露, 故独立窗口 + 边界强制同步)。
+        """
+        if self._persist is None:
+            return
+        now = time.monotonic()
+        if not force and now - self._pause_poll_at.get(task.id, 0.0) < PAUSE_POLL_SECONDS:
+            return
+        self._pause_poll_at[task.id] = now
+        try:
+            if self._persist.is_task_pause_requested(task.id):
+                task.pause()
+            else:
+                task.resume()
+        except Exception:
+            pass
+
     def _wait_while_paused(self, task: WebTask) -> None:
-        """文件边界暂停等待: 恢复或取消才返回 (执行线程内调用)"""
+        """文件边界暂停等待: 入口强制同步一次 DB 标志 (能发现上边界之后到达的
+        暂停请求), 等待中再按 0.5s 窗口轮询恢复请求; 恢复或取消才返回"""
+        self._sync_pause_flag(task, force=True)
         while task.paused and not self._should_stop(task):
+            self._sync_pause_flag(task)
             time.sleep(0.1)
 
     # ==================== 同名冲突策略 (Pail 借鉴 #4) ====================
@@ -618,22 +645,38 @@ class WebTaskManager:
     # ==================== 暂停 / 恢复 ====================
 
     def pause_task(self, task_id: str) -> bool:
-        """暂停任务: 仅本 worker 的执行副本可暂停 (跨 worker 视图返回 False)"""
+        """暂停任务: 本 worker 副本置事件 + 落库; 跨 worker 视图仅落库标志
+        (执行方轮询到后自行暂停, v0.6.0 起支持)"""
         task = self.get(task_id)
-        if not isinstance(task, WebTask):
-            # TaskView (其他 worker 的只读视图) 或不存在: 暂停态在执行
-            # worker 内存里, 跨 worker 暂停待后续 (DB 无暂停列)
+        if task is None:
             return False
-        if task.is_finished:
+        is_local = isinstance(task, WebTask)
+        if is_local and task.is_finished:
             return False
-        task.pause()
+        if is_local:
+            task.pause()
+        if self._persist is not None:
+            try:
+                self._persist.request_task_pause(task_id)
+            except Exception:
+                logger.warning("跨 worker 暂停落库失败 (task=%s)", task_id,
+                               exc_info=True)
+                if not is_local:
+                    return False  # 视图只有 DB 一条路, 落库失败如实失败
         return True
 
     def resume_task(self, task_id: str) -> bool:
         task = self.get(task_id)
-        if task is None or not isinstance(task, WebTask):
+        if task is None:
             return False
-        task.resume()
+        if isinstance(task, WebTask):
+            task.resume()
+        if self._persist is not None:
+            try:
+                self._persist.request_task_resume(task_id)
+            except Exception:
+                logger.warning("跨 worker 恢复落库失败 (task=%s)", task_id,
+                               exc_info=True)
         return True
 
     # ==================== 清理 ====================
