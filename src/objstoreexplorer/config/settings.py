@@ -15,7 +15,7 @@ from pathlib import Path
 # ==================== 应用元信息 ====================
 
 APP_NAME = "ObjStoreExplorer"
-APP_VERSION = "0.6.1"
+APP_VERSION = "0.6.2"
 # 窗口标题 — 故意不带版本号,版本号从关于页查
 APP_DISPLAY_NAME = f"{APP_NAME} - MinIO/S3 管理工具"
 

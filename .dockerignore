@@ -41,3 +41,15 @@ docker-compose.yml
 README.md
 change.md
 CHANGELOG.md
+
+# Local configuration, logs and generated output
+.env
+.env.*
+**/.env
+**/.env.*
+**/config.json
+**/*.log
+config/feedback.yaml
+release/
+output/
+outputs/

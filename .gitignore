@@ -29,3 +29,9 @@ htmlcov/
 Thumbs.db
 
 # 注意: build.spec 是版本化的 PyInstaller 配置, 不要加入忽略
+
+# Local configuration and generated output
+config.json
+/downloads/
+/output/
+/outputs/

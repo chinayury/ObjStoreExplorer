@@ -4,6 +4,10 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [v0.6.2] — 2026-11-26 · 排除本地配置和构建输出
+
+- Docker 构建上下文排除环境文件、本地配置、日志和发布输出。Git 忽略本地配置及下载、输出目录。
+
 ## [v0.6.1 · 每周维护第七轮] — 2026-11-19 · 依赖巡检与打包元数据迁移
 
 > 每周维护循环第七轮。开放 Issues 巡检：0 条待处置；调研与 docs/06 基线去重，间隔 1 天
